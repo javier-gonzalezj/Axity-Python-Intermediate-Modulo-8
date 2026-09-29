@@ -58,7 +58,7 @@ class RepositorioLibros(Protocol):
         ...
 
     def agregar(self, libro: Libro) -> None:
-        """Registra un libro nuevo. LibroInvalidoError si el ISBN ya existe."""
+        """Registra un libro nuevo. LibroDuplicadoError si el ISBN ya existe."""
         ...
 
     def guardar(self, libro: Libro) -> None:

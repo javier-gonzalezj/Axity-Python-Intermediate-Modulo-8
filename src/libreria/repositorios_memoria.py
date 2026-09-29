@@ -21,7 +21,7 @@ from types import TracebackType
 from typing import Self
 
 from libreria.excepciones import (
-    LibroInvalidoError,
+    LibroDuplicadoError,
     LibroNoEncontradoError,
     PedidoNoEncontradoError,
 )
@@ -84,7 +84,7 @@ class LibrosEnMemoria:
 
     def agregar(self, libro: Libro) -> None:
         if libro.isbn in self._estado.libros:
-            raise LibroInvalidoError(f"Ya existe un libro con ISBN {libro.isbn}")
+            raise LibroDuplicadoError(f"Ya existe un libro con ISBN {libro.isbn}")
         self._estado.libros[libro.isbn] = libro.model_copy(deep=True)
 
     def guardar(self, libro: Libro) -> None:

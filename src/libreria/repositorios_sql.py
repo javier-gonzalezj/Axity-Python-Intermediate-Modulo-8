@@ -28,7 +28,7 @@ from libreria.basedatos import (
     libro_a_fila,
 )
 from libreria.excepciones import (
-    LibroInvalidoError,
+    LibroDuplicadoError,
     LibroNoEncontradoError,
     PedidoNoEncontradoError,
     PersistenciaError,
@@ -60,7 +60,7 @@ class LibrosSQL:
 
     def agregar(self, libro: Libro) -> None:
         if self._sesion.get(LibroDB, libro.isbn) is not None:
-            raise LibroInvalidoError(f"Ya existe un libro con ISBN {libro.isbn}")
+            raise LibroDuplicadoError(f"Ya existe un libro con ISBN {libro.isbn}")
         self._sesion.add(libro_a_fila(libro))
 
     def guardar(self, libro: Libro) -> None:

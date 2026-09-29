@@ -2,10 +2,11 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from libreria import basedatos as bd
 from libreria.api.dependencies import (
+    AgregarLibroDep,
     LibroDep,
     PaginacionDep,
     Respuestas,
@@ -53,14 +54,9 @@ def listar_libros(
     dependencies=SOLO_ADMIN,
     responses={**_ERRORES_AUTH, 409: {"description": "Ya existe un libro con ese ISBN"}},
 )
-def crear_libro(datos: LibroCreate, sesion: SesionDep) -> Libro:
-    # Regla de negocio: necesita consultar la base, así que no va en el esquema
-    if bd.obtener_libro(sesion, datos.isbn) is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"Ya existe un libro con ISBN {datos.isbn}")
-
-    libro = datos.a_libro()
-    bd.guardar_libro(sesion, libro)
-    return libro
+def crear_libro(datos: LibroCreate, caso: AgregarLibroDep) -> Libro:
+    # ISBN repetido -> LibroDuplicadoError -> 409 (ver app.py)
+    return caso.ejecutar(datos.a_libro())
 
 
 @router.get(

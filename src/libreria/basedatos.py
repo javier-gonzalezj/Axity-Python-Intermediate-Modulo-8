@@ -18,12 +18,12 @@ SQLAlchemy.
 
 Este módulo es un ADAPTADOR: traduce entre filas y objetos del dominio, pero
 no decide reglas de negocio. Las de pedidos (stock, estatus, cancelación)
-viven en pedidos.py; aquí solo se cargan las filas, se le pasa el trabajo al
-dominio y se guarda el resultado.
+viven en pedidos.py, y los casos de uso que las ejecutan (crear un pedido,
+cambiar su estatus, agregar un libro) en casos_uso.py, que guardan a través
+de los repositorios de repositorios_sql.py.
 """
 
 import logging
-from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -46,12 +46,9 @@ from sqlalchemy import (
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
-from libreria import pedidos
 from libreria.excepciones import (
     LibreriaError,
-    LibroInvalidoError,
     LibroNoEncontradoError,
-    PedidoNoEncontradoError,
     RegistroEnUsoError,
     UsuarioNoEncontradoError,
 )
@@ -248,14 +245,6 @@ def fila_a_pedido(fila: PedidoDB) -> Pedido:
 # ---------------------------------------------------------------------------
 # Libros
 # ---------------------------------------------------------------------------
-def guardar_libro(sesion: Session, libro: Libro) -> None:
-    if sesion.get(LibroDB, libro.isbn) is not None:
-        raise LibroInvalidoError(f"Ya existe un libro con ISBN {libro.isbn}")
-
-    sesion.add(libro_a_fila(libro))
-    sesion.commit()
-
-
 def importar_catalogo(sesion: Session, data: Libreria) -> int:
     """Migra los libros que ya cargó almacenamiento.cargar_datos() a la base.
 
@@ -460,49 +449,6 @@ def eliminar_usuario(sesion: Session, usuario_id: int) -> None:
 # ---------------------------------------------------------------------------
 # Pedidos
 # ---------------------------------------------------------------------------
-def crear_pedido(sesion: Session, usuario_id: int, lineas: dict[str, int]) -> Pedido:
-    """Crea un pedido a partir de {isbn: cantidad}.
-
-    Las reglas (hay libros, cantidades positivas, stock suficiente) las decide
-    pedidos.crear_pedido(). Aquí solo se leen las filas, se traducen a Libro y
-    se escriben de vuelta los cambios. Todo ocurre en UNA transacción: si algo
-    falla, se hace rollback y ni el pedido ni el inventario cambian.
-    """
-    try:
-        if sesion.get(UsuarioDB, usuario_id) is None:
-            raise UsuarioNoEncontradoError(f"No existe el usuario {usuario_id}")
-
-        # filas -> dominio (los ISBN que no existen simplemente no se incluyen)
-        filas = _filas_libros(sesion, lineas)
-        libros = {isbn: fila_a_libro(fila) for isbn, fila in filas.items()}
-
-        pedido = pedidos.crear_pedido(usuario_id, lineas, libros, fecha=datetime.now())
-
-        # dominio -> filas
-        _copiar_inventario(libros, filas)
-        fila_pedido = PedidoDB(
-            usuario_id=pedido.usuario_id,
-            fecha=pedido.fecha,
-            estatus=pedido.estatus,
-            items=[
-                PedidoItemDB(
-                    libro=filas[item.isbn],
-                    cantidad=item.cantidad,
-                    precio_unitario=item.precio_unitario,
-                )
-                for item in pedido.items
-            ],
-        )
-        sesion.add(fila_pedido)
-        sesion.commit()
-    except Exception:
-        sesion.rollback()
-        raise
-
-    log.info("Pedido %s creado para usuario %s", fila_pedido.id, usuario_id)
-    return fila_a_pedido(fila_pedido)
-
-
 def obtener_pedido(sesion: Session, pedido_id: int) -> Pedido | None:
     fila = sesion.get(PedidoDB, pedido_id)
     return fila_a_pedido(fila) if fila else None
@@ -521,52 +467,6 @@ def listar_pedidos(sesion: Session, estatus: str | None = None) -> list[Pedido]:
     if estatus is not None:
         consulta = consulta.where(PedidoDB.estatus == estatus)
     return [fila_a_pedido(fila) for fila in sesion.scalars(consulta)]
-
-
-def cambiar_estatus(sesion: Session, pedido_id: int, nuevo: str) -> Pedido:
-    """Avanza (pendiente -> pagado -> enviado) o cancela el pedido.
-
-    Qué transiciones valen y qué pasa al cancelar lo decide pedidos.py.
-    """
-    fila = sesion.get(PedidoDB, pedido_id)
-    if fila is None:
-        raise PedidoNoEncontradoError(f"No existe el pedido {pedido_id}")
-
-    # filas -> dominio
-    pedido = fila_a_pedido(fila)
-    filas_libros = {item.isbn: item.libro for item in fila.items}
-    libros = {isbn: fila_a_libro(fila_libro) for isbn, fila_libro in filas_libros.items()}
-    anterior = pedido.estatus
-
-    pedidos.cambiar_estatus(pedido, nuevo, libros)  # el dominio decide (o lanza error)
-
-    if pedido.estatus != anterior:  # cancelar dos veces no cambia nada
-        # dominio -> filas
-        fila.estatus = pedido.estatus
-        _copiar_inventario(libros, filas_libros)
-        sesion.commit()
-        log.info("Pedido %s ahora está %s", pedido_id, pedido.estatus)
-    return pedido
-
-
-def cancelar_pedido(sesion: Session, pedido_id: int) -> None:
-    """Cancela el pedido y regresa los libros al inventario (soft delete).
-
-    Cancelar un pedido ya cancelado no hace nada; uno enviado no se puede cancelar.
-    """
-    cambiar_estatus(sesion, pedido_id, "cancelado")
-
-
-def _filas_libros(sesion: Session, isbns: Iterable[str]) -> dict[str, LibroDB]:
-    """Filas de los libros indicados que sí existen, por ISBN."""
-    filas = {isbn: sesion.get(LibroDB, isbn) for isbn in isbns}
-    return {isbn: fila for isbn, fila in filas.items() if fila is not None}
-
-
-def _copiar_inventario(libros: dict[str, Libro], filas: dict[str, LibroDB]) -> None:
-    """Pasa a las filas la cantidad disponible que calculó el dominio."""
-    for isbn, fila in filas.items():
-        fila.cantidad_disponible = libros[isbn].cantidad_disponible
 
 
 # ---------------------------------------------------------------------------

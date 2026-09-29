@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Callable, Iterable
 
-from libreria.excepciones import LibroInvalidoError
+from libreria.excepciones import LibroDuplicadoError
 from libreria.modelos import Libreria, Libro
 
 log = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ def agregar_libro(data: Libreria, libro: Libro) -> Libreria:
     """
     isbn_existentes = {existente.isbn for existente in data["libros"]}
     if libro.isbn in isbn_existentes:
-        raise LibroInvalidoError(f"Ya existe un libro con ISBN {libro.isbn}")
+        raise LibroDuplicadoError(f"Ya existe un libro con ISBN {libro.isbn}")
 
     data["libros"].append(libro)
     log.info("Libro agregado: %s (ISBN %s)", libro.titulo, libro.isbn)

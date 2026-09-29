@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from libreria.api.routers import auth, libros, pedidos, reportes, usuarios
 from libreria.excepciones import (
     LibreriaError,
+    LibroDuplicadoError,
     LibroInvalidoError,
     LibroNoEncontradoError,
     PedidoNoEncontradoError,
@@ -40,8 +41,8 @@ app.include_router(reportes.router)
 # ---------------------------------------------------------------------------
 # El dominio y basedatos.py lanzan sus excepciones (no saben nada de HTTP). Aquí se
 # traducen en un solo lugar. El orden importa: la primera clase que coincida
-# gana, así que las más específicas van antes (LibroNoEncontradoError hereda
-# de LibroInvalidoError).
+# gana, así que las más específicas van antes (LibroNoEncontradoError y
+# LibroDuplicadoError heredan de LibroInvalidoError).
 CODIGOS_HTTP: list[tuple[type[LibreriaError], int]] = [
     (LibroNoEncontradoError, status.HTTP_404_NOT_FOUND),
     (UsuarioNoEncontradoError, status.HTTP_404_NOT_FOUND),
@@ -49,6 +50,7 @@ CODIGOS_HTTP: list[tuple[type[LibreriaError], int]] = [
     (StockInsuficienteError, status.HTTP_409_CONFLICT),
     (RegistroEnUsoError, status.HTTP_409_CONFLICT),
     (TransicionEstatusError, status.HTTP_409_CONFLICT),
+    (LibroDuplicadoError, status.HTTP_409_CONFLICT),
     (LibroInvalidoError, 422),  # datos que la base no puede procesar
 ]
 

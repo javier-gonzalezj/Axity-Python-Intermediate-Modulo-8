@@ -13,6 +13,16 @@ from sqlalchemy.orm import Session
 from libreria import basedatos as bd
 from libreria.almacenamiento import cargar_datos
 from libreria.buscador import limpiar_cache_isbn
+from libreria.casos_uso import (
+    AgregarLibro,
+    CambiarEstatusComando,
+    CambiarEstatusPedido,
+    CrearPedido,
+    CrearPedidoComando,
+)
+from libreria.modelos import Libro
+from libreria.pedidos import Pedido
+from libreria.repositorios_sql import UnidadDeTrabajoSQL
 
 RAIZ = Path(__file__).parent.parent
 # Catálogo FIJO para pruebas. No uses data/libreria.json: ese archivo cambia
@@ -39,3 +49,27 @@ def sesion() -> Iterator[Session]:
         bd.importar_catalogo(s, cargar_datos(CATALOGO))
         yield s
     motor.dispose()
+
+
+# ── Atajos: los casos de uso REALES sobre la base de una prueba ─────────────
+# Las pruebas de basedatos, CRUD y predicción necesitan pedidos en la base.
+# En lugar de insertarlos a mano, usan el mismo camino que la API.
+
+
+def crear_pedido(sesion: Session, usuario_id: int, lineas: dict[str, int]) -> Pedido:
+    comando = CrearPedidoComando(usuario_id=usuario_id, lineas=lineas)
+    return CrearPedido(UnidadDeTrabajoSQL(sesion)).ejecutar(comando)
+
+
+def cambiar_estatus(sesion: Session, pedido_id: int | None, estatus: str) -> Pedido:
+    assert pedido_id is not None
+    comando = CambiarEstatusComando(pedido_id=pedido_id, estatus=estatus)
+    return CambiarEstatusPedido(UnidadDeTrabajoSQL(sesion)).ejecutar(comando)
+
+
+def cancelar_pedido(sesion: Session, pedido_id: int | None) -> Pedido:
+    return cambiar_estatus(sesion, pedido_id, "cancelado")
+
+
+def agregar_libro(sesion: Session, libro: Libro) -> Libro:
+    return AgregarLibro(UnidadDeTrabajoSQL(sesion)).ejecutar(libro)

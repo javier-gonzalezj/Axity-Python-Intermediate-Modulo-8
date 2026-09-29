@@ -268,7 +268,19 @@ Cómo funciona:
 
 La tendencia de las ventas sintéticas está escrita a mano en `datos_sinteticos.popularidad()` (thrillers, fantasía y novelas baratas se venden más; poesía y ensayo, menos). Un modelo entrenado con esos datos solo aprende esa regla: sirve para practicar el flujo, no para decidir qué libros comprar. `importancias()` muestra qué rasgos usó el modelo para compararlos con la regla.
 
-## Cambios recientes: pruebas de contrato (paso 4, adelantado al 3)
+## Cambios recientes: casos de uso (paso 3)
+
+La API ya no orquesta nada: traduce HTTP a un comando, llama a un caso de uso y traduce el resultado (o el error) a una respuesta.
+
+- **`casos_uso.py`** (nuevo): `CrearPedido`, `CambiarEstatusPedido` y `AgregarLibro`, con sus comandos `CrearPedidoComando` y `CambiarEstatusComando`. Cada uno obtiene los datos a través de la `UnidadDeTrabajo`, deja las decisiones al dominio (`pedidos.py`, `Libro`) y confirma todo junto o nada. La fecha del pedido sale de un reloj inyectado (`ahora`), así que las pruebas pueden fijarla.
+- **Raíz de composición de la API** en `api/dependencies.py`: `obtener_uow()` elige el adaptador (`UnidadDeTrabajoSQL`) y arma los casos de uso, que los routers piden ya listos (`CrearPedidoDep`, `CambiarEstatusDep`, `AgregarLibroDep`).
+- **Routers de pedidos y libros**: ya no reciben la sesión de SQLAlchemy para crear pedidos, cambiar su estatus o agregar libros. La regla del ISBN repetido ya no vive en el router: el repositorio lanza `LibroDuplicadoError`, que `app.py` traduce a 409, como antes.
+- **`basedatos.py` sin orquestación**: se quitaron `crear_pedido()`, `cambiar_estatus()`, `cancelar_pedido()` y `guardar_libro()`, que duplicaban lo que ahora hacen los casos de uso. Las pruebas que las usaban llaman a los casos de uso reales mediante atajos de `conftest.py`.
+- **`tests/test_casos_uso.py`** (nuevo): prueba la orquestación con `UnidadDeTrabajoEnMemoria` (qué se guarda, cuántas veces se confirma y que un error no confirme nada), sin base de datos.
+
+La API responde igual que antes: los mismos códigos HTTP y los mismos datos.
+
+## Cambios anteriores: pruebas de contrato (paso 4, adelantado al 3)
 
 Una prueba de contrato es una sola batería de pruebas que corre contra TODAS las implementaciones de un puerto. Si todas pasan, las pruebas que usan la versión en memoria no mienten: la real se comporta igual.
 
@@ -326,19 +338,20 @@ libreria/
 │   ├── main.py                # punto de entrada y menú
 │   ├── api/                   # API web (FastAPI)
 │   │   ├── app.py             # crea la app, incluye routers, errores -> HTTP
-│   │   ├── dependencies.py    # sesión de BD, búsqueda con 404, paginación, permisos
+│   │   ├── dependencies.py    # raíz de composición: sesión, UoW y casos de uso; 404, paginación, permisos
 │   │   ├── schemas.py         # esquemas de entrada y salida con validaciones
 │   │   ├── seguridad.py       # hash de contraseñas y tokens JWT
 │   │   ├── crear_admin.py     # crea el primer administrador desde la consola
 │   │   └── routers/           # auth.py, libros.py, usuarios.py, pedidos.py, reportes.py
 │   ├── modelos.py             # modelos Libro y Autor (pydantic), con el inventario del libro
 │   ├── pedidos.py             # dominio de pedidos: Pedido, estatus, stock y cancelación
+│   ├── casos_uso.py           # casos de uso: CrearPedido, CambiarEstatusPedido, AgregarLibro
 │   ├── puertos.py             # puertos (Protocol): catálogo, repositorios y unidad de trabajo
 │   ├── repositorios_sql.py    # adaptadores SQLAlchemy de los puertos y unidad de trabajo
 │   ├── repositorios_memoria.py  # adaptadores en memoria de los puertos (para pruebas)
 │   ├── servicios.py           # casos de uso del catálogo (ServicioCatalogo)
 │   ├── almacenamiento.py      # lectura y escritura del catálogo JSON
-│   ├── basedatos.py           # adaptador SQLAlchemy: tablas y traducción filas <-> dominio
+│   ├── basedatos.py           # adaptador SQLAlchemy: tablas, traducción filas <-> dominio y consultas
 │   ├── catalogo.py            # reglas del catálogo: agregar y filtrar (estrategias de filtrado)
 │   ├── captura.py             # entrada de datos por consola
 │   ├── vista.py               # salida por consola
@@ -354,6 +367,7 @@ libreria/
 │   ├── test_buscador.py       # Open Library simulado y caché de búsquedas
 │   ├── test_filtros.py        # estrategias de filtrado del catálogo
 │   ├── test_pedidos.py        # reglas de pedidos e inventario, sin base de datos
+│   ├── test_casos_uso.py      # orquestación de los casos de uso con la UoW en memoria
 │   ├── test_servicios.py      # ServicioCatalogo con repositorios falsos
 │   ├── test_cache.py          # decorador @cache_temporal (con reloj falso)
 │   ├── test_portadas_concurrentes.py  # descarga en lote (async), semáforo y @reintentar_async
@@ -377,7 +391,7 @@ libreria/
 poetry run pytest
 ```
 
-`test_pedidos.py` prueba las reglas de pedidos directamente sobre objetos del dominio: no necesita base de datos. Los archivos `test_contrato_*.py` son pruebas de contrato: la misma batería corre contra el adaptador real y contra el de memoria (en la salida aparecen como `[sql]`/`[json]` y `[memoria]`), usando solo lo que promete el puerto. Las pruebas de `basedatos.py` usan una base SQLite en memoria, así que no tocan `data/libreria.db`. `test_migraciones.py` aplica y revierte las migraciones de Alembic sobre una base en memoria y verifica que coincidan con los modelos (lo mismo que `alembic check`). `test_api.py` prueba los endpoints con `TestClient` y reemplaza la sesión de base de datos por una en memoria con `app.dependency_overrides`. Las pruebas de `buscador.py` usan `httpx.MockTransport` para simular las respuestas de Open Library, así que no necesitan conexión a internet. `test_portadas_concurrentes.py` usa el mismo `MockTransport` con `httpx.AsyncClient` y ejecuta cada corrutina con `asyncio.run()`, así que no necesita plugins extra de pytest. Una de sus pruebas simula una red lenta para comprobar que el semáforo nunca deja más descargas simultáneas de las permitidas. `test_cache.py` simula el paso del tiempo con un reloj falso, así las pruebas de caducidad no esperan de verdad; `conftest.py` limpia la caché de ISBN antes de cada prueba. `test_prediccion.py` genera ventas sintéticas con semilla fija y entrena el modelo una sola vez para todo el archivo (fixture con `scope="module"`); comprueba, entre otras cosas, que el modelo supera claramente al azar y que las existencias no cambian la predicción.
+`test_pedidos.py` prueba las reglas de pedidos directamente sobre objetos del dominio: no necesita base de datos. `test_casos_uso.py` prueba la orquestación de los casos de uso con `UnidadDeTrabajoEnMemoria`. Los archivos `test_contrato_*.py` son pruebas de contrato: la misma batería corre contra el adaptador real y contra el de memoria (en la salida aparecen como `[sql]`/`[json]` y `[memoria]`), usando solo lo que promete el puerto. Las pruebas de `basedatos.py` usan una base SQLite en memoria, así que no tocan `data/libreria.db`. `test_migraciones.py` aplica y revierte las migraciones de Alembic sobre una base en memoria y verifica que coincidan con los modelos (lo mismo que `alembic check`). `test_api.py` prueba los endpoints con `TestClient` y reemplaza la sesión de base de datos por una en memoria con `app.dependency_overrides`. Las pruebas de `buscador.py` usan `httpx.MockTransport` para simular las respuestas de Open Library, así que no necesitan conexión a internet. `test_portadas_concurrentes.py` usa el mismo `MockTransport` con `httpx.AsyncClient` y ejecuta cada corrutina con `asyncio.run()`, así que no necesita plugins extra de pytest. Una de sus pruebas simula una red lenta para comprobar que el semáforo nunca deja más descargas simultáneas de las permitidas. `test_cache.py` simula el paso del tiempo con un reloj falso, así las pruebas de caducidad no esperan de verdad; `conftest.py` limpia la caché de ISBN antes de cada prueba. `test_prediccion.py` genera ventas sintéticas con semilla fija y entrena el modelo una sola vez para todo el archivo (fixture con `scope="module"`); comprueba, entre otras cosas, que el modelo supera claramente al azar y que las existencias no cambian la predicción.
 
 ### Calidad del código
 

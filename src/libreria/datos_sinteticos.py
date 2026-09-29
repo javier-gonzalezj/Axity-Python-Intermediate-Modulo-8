@@ -152,7 +152,7 @@ def poblar(
     que hace reproducibles los experimentos y las pruebas.
 
     Los pedidos se insertan directamente como historial: NO usan
-    basedatos.crear_pedido(), porque ese valida y descuenta existencias y pone
+    el caso de uso CrearPedido, porque ese valida y descuenta existencias y pone
     la fecha de hoy, y aquí queremos ventas repartidas en el pasado.
     """
     if libros < 1 or pedidos < 1 or usuarios < 1:

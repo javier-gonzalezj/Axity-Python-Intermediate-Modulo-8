@@ -15,7 +15,7 @@ from libreria.excepciones import (
     StockInsuficienteError,
     UsuarioNoEncontradoError,
 )
-from tests.conftest import CATALOGO
+from tests.conftest import CATALOGO, cancelar_pedido, crear_pedido
 
 CIEN_AÑOS = "978-607-07-1234-5"  # 12 ejemplares, $349.90
 NOVENTA_OCHENTA_Y_CUATRO = "978-607-11-9876-3"  # 1984: 0 ejemplares
@@ -50,7 +50,7 @@ def test_crear_pedido_calcula_total_y_descuenta_stock(sesion: Session) -> None:
     ana = bd.crear_usuario(sesion, "Ana", "ana@mail.com", telefono="55-1234-5678")
     assert ana.id is not None
 
-    pedido = bd.crear_pedido(sesion, ana.id, {CIEN_AÑOS: 2, RAYUELA: 1})
+    pedido = crear_pedido(sesion, ana.id, {CIEN_AÑOS: 2, RAYUELA: 1})
 
     assert pedido.estatus == "pendiente"
     assert len(pedido.items) == 2
@@ -64,7 +64,7 @@ def test_pedido_sin_stock_no_cambia_nada(sesion: Session) -> None:
     assert luis.id is not None
 
     with pytest.raises(StockInsuficienteError):
-        bd.crear_pedido(sesion, luis.id, {RAYUELA: 1, NOVENTA_OCHENTA_Y_CUATRO: 1})
+        crear_pedido(sesion, luis.id, {RAYUELA: 1, NOVENTA_OCHENTA_Y_CUATRO: 1})
 
     assert stock(sesion, RAYUELA) == 5  # el rollback regresó el descuento
     assert bd.pedidos_de_usuario(sesion, luis.id) == []
@@ -75,17 +75,17 @@ def test_pedido_con_errores(sesion: Session) -> None:
     assert ana.id is not None
 
     with pytest.raises(UsuarioNoEncontradoError):
-        bd.crear_pedido(sesion, 999, {CIEN_AÑOS: 1})
+        crear_pedido(sesion, 999, {CIEN_AÑOS: 1})
     with pytest.raises(LibroInvalidoError):
-        bd.crear_pedido(sesion, ana.id, {"no-existe": 1})
+        crear_pedido(sesion, ana.id, {"no-existe": 1})
     with pytest.raises(LibreriaError):
-        bd.crear_pedido(sesion, ana.id, {})
+        crear_pedido(sesion, ana.id, {})
 
 
 def test_precio_del_pedido_no_cambia_si_cambia_el_catalogo(sesion: Session) -> None:
     ana = bd.crear_usuario(sesion, "Ana", "ana@mail.com")
     assert ana.id is not None
-    pedido = bd.crear_pedido(sesion, ana.id, {RAYUELA: 1})
+    pedido = crear_pedido(sesion, ana.id, {RAYUELA: 1})
 
     libro_db = sesion.get(bd.LibroDB, RAYUELA)
     assert libro_db is not None
@@ -102,8 +102,8 @@ def test_cancelar_regresa_stock_y_sale_de_reportes(sesion: Session) -> None:
     luis = bd.crear_usuario(sesion, "Luis", "luis@mail.com")
     assert ana.id is not None and luis.id is not None
 
-    pedido_ana = bd.crear_pedido(sesion, ana.id, {CIEN_AÑOS: 2, RAYUELA: 1})
-    bd.crear_pedido(sesion, luis.id, {CIEN_AÑOS: 1})
+    pedido_ana = crear_pedido(sesion, ana.id, {CIEN_AÑOS: 2, RAYUELA: 1})
+    crear_pedido(sesion, luis.id, {CIEN_AÑOS: 1})
 
     assert bd.total_por_usuario(sesion) == [
         ("Ana", 1, pytest.approx(1099.30)),
@@ -111,8 +111,8 @@ def test_cancelar_regresa_stock_y_sale_de_reportes(sesion: Session) -> None:
     ]
     assert bd.libros_mas_vendidos(sesion)[0] == ("Cien años de soledad", 3)
 
-    bd.cancelar_pedido(sesion, pedido_ana.id)
-    bd.cancelar_pedido(sesion, pedido_ana.id)  # cancelar dos veces no regresa stock doble
+    cancelar_pedido(sesion, pedido_ana.id)
+    cancelar_pedido(sesion, pedido_ana.id)  # cancelar dos veces no regresa stock doble
 
     assert stock(sesion, CIEN_AÑOS) == 11
     assert stock(sesion, RAYUELA) == 5

@@ -11,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from libreria import basedatos as bd
 from libreria.api.dependencies import (
+    CambiarEstatusDep,
+    CrearPedidoDep,
     PaginacionDep,
     PedidoAutorizadoDep,
     Respuestas,
@@ -20,6 +22,7 @@ from libreria.api.dependencies import (
     usuario_actual,
 )
 from libreria.api.schemas import EstatusUpdate, PedidoCreate, PedidoRead
+from libreria.casos_uso import CambiarEstatusComando, CrearPedidoComando
 from libreria.pedidos import Estatus, Pedido
 
 router = APIRouter(
@@ -58,10 +61,10 @@ def listar_pedidos(
         422: {"description": "Datos inválidos o algún libro no existe"},
     },
 )
-def crear_pedido(datos: PedidoCreate, actual: UsuarioActualDep, sesion: SesionDep) -> Pedido:
+def crear_pedido(datos: PedidoCreate, actual: UsuarioActualDep, caso: CrearPedidoDep) -> Pedido:
     assert actual.id is not None
-    # El usuario sale del token, no del cuerpo de la petición
-    return bd.crear_pedido(sesion, actual.id, datos.como_lineas())
+    # HTTP -> comando. El usuario sale del token, no del cuerpo de la petición
+    return caso.ejecutar(CrearPedidoComando(usuario_id=actual.id, lineas=datos.como_lineas()))
 
 
 @router.get(
@@ -81,7 +84,7 @@ def cambiar_estatus(
     pedido: PedidoAutorizadoDep,
     cambio: EstatusUpdate,
     actual: UsuarioActualDep,
-    sesion: SesionDep,
+    caso: CambiarEstatusDep,
 ) -> Pedido:
     """pendiente → pagado → enviado. Cancelar regresa los libros al inventario."""
     if actual.rol != "admin" and cambio.estatus != "cancelado":
@@ -89,4 +92,4 @@ def cambiar_estatus(
             status.HTTP_403_FORBIDDEN, "Solo un administrador puede marcar pagos o envíos"
         )
     assert pedido.id is not None  # viene de la base, siempre tiene id
-    return bd.cambiar_estatus(sesion, pedido.id, cambio.estatus)
+    return caso.ejecutar(CambiarEstatusComando(pedido_id=pedido.id, estatus=cambio.estatus))

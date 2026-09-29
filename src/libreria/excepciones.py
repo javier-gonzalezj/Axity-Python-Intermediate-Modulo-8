@@ -34,6 +34,10 @@ class LibroNoEncontradoError(LibroInvalidoError):
     """Se lanza cuando el libro indicado no existe."""
 
 
+class LibroDuplicadoError(LibroInvalidoError):
+    """Se lanza al registrar un libro cuyo ISBN ya existe."""
+
+
 class UsuarioNoEncontradoError(LibreriaError):
     """Se lanza cuando el usuario indicado no existe."""
 

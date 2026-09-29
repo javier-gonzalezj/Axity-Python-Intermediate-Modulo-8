@@ -291,7 +291,7 @@ class PedidoCreate(_Entrada):
         return self
 
     def como_lineas(self) -> dict[str, int]:
-        """Formato que espera bd.crear_pedido: {isbn: cantidad}."""
+        """Formato que espera CrearPedidoComando: {isbn: cantidad}."""
         return {item.isbn: item.cantidad for item in self.items}
 
 

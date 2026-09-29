@@ -17,6 +17,7 @@ from libreria import prediccion as pr
 from libreria.datos_sinteticos import poblar
 from libreria.excepciones import ArchivoNoEncontradoError, DatosInsuficientesError, LibreriaError
 from libreria.modelos import Autor, Libro
+from tests.conftest import cancelar_pedido, crear_pedido
 
 CIEN_AÑOS = "978-607-07-1234-5"  # del catálogo de prueba: 12 ejemplares
 RAYUELA = "978-84-9793-563-2"  # 5 ejemplares
@@ -86,9 +87,9 @@ def test_caracteristicas_sin_fuga_de_datos() -> None:
 def test_cargar_datos_cuenta_ventas_sin_cancelados(sesion: Session) -> None:
     ana = bd.crear_usuario(sesion, "Ana", "ana@mail.com")
     assert ana.id is not None
-    bd.crear_pedido(sesion, ana.id, {CIEN_AÑOS: 3})
-    cancelado = bd.crear_pedido(sesion, ana.id, {CIEN_AÑOS: 2, RAYUELA: 1})
-    bd.cancelar_pedido(sesion, cancelado.id)
+    crear_pedido(sesion, ana.id, {CIEN_AÑOS: 3})
+    cancelado = crear_pedido(sesion, ana.id, {CIEN_AÑOS: 2, RAYUELA: 1})
+    cancelar_pedido(sesion, cancelado.id)
 
     df = pr.cargar_datos(sesion)
 

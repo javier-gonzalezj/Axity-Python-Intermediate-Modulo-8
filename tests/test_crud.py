@@ -14,6 +14,7 @@ from libreria.excepciones import (
     TransicionEstatusError,
     UsuarioNoEncontradoError,
 )
+from tests.conftest import agregar_libro, cambiar_estatus, cancelar_pedido, crear_pedido
 
 CIEN_AÑOS = "978-607-07-1234-5"  # 12 ejemplares, $349.90
 RAYUELA = "978-84-9793-563-2"  # 5 ejemplares, $399.50
@@ -83,7 +84,7 @@ class TestUsuarios:
 
     def test_no_se_elimina_usuario_con_pedidos(self, sesion: Session) -> None:
         ana_id = nuevo_usuario(sesion)
-        bd.crear_pedido(sesion, ana_id, {RAYUELA: 1})
+        crear_pedido(sesion, ana_id, {RAYUELA: 1})
 
         with pytest.raises(RegistroEnUsoError):
             bd.eliminar_usuario(sesion, ana_id)
@@ -99,11 +100,11 @@ class TestLibros:
         assert libro is not None
 
         nuevo = libro.model_copy(update={"isbn": "978-0-00-000000-0", "titulo": "Libro nuevo"})
-        bd.guardar_libro(sesion, nuevo)
+        agregar_libro(sesion, nuevo)
 
         assert bd.obtener_libro(sesion, "978-0-00-000000-0") == nuevo
         with pytest.raises(LibroInvalidoError, match="Ya existe"):
-            bd.guardar_libro(sesion, nuevo)
+            agregar_libro(sesion, nuevo)
 
     def test_actualizar_precio_y_stock(self, sesion: Session) -> None:
         libro = bd.actualizar_libro(sesion, RAYUELA, precio=420.0, cantidad_disponible=0)
@@ -133,7 +134,7 @@ class TestLibros:
         assert len(bd.listar_libros(sesion)) == total - 1
 
     def test_no_se_elimina_libro_vendido(self, sesion: Session) -> None:
-        bd.crear_pedido(sesion, nuevo_usuario(sesion), {RAYUELA: 1})
+        crear_pedido(sesion, nuevo_usuario(sesion), {RAYUELA: 1})
 
         with pytest.raises(RegistroEnUsoError):
             bd.eliminar_libro(sesion, RAYUELA)
@@ -145,40 +146,40 @@ class TestLibros:
 # ---------------------------------------------------------------------------
 class TestEstatusPedido:
     def test_flujo_normal(self, sesion: Session) -> None:
-        pedido = bd.crear_pedido(sesion, nuevo_usuario(sesion), {CIEN_AÑOS: 1})
+        pedido = crear_pedido(sesion, nuevo_usuario(sesion), {CIEN_AÑOS: 1})
 
-        assert bd.cambiar_estatus(sesion, pedido.id, "pagado").estatus == "pagado"
-        assert bd.cambiar_estatus(sesion, pedido.id, "enviado").estatus == "enviado"
+        assert cambiar_estatus(sesion, pedido.id, "pagado").estatus == "pagado"
+        assert cambiar_estatus(sesion, pedido.id, "enviado").estatus == "enviado"
         assert [p.id for p in bd.listar_pedidos(sesion, estatus="enviado")] == [pedido.id]
         assert bd.listar_pedidos(sesion, estatus="pendiente") == []
 
     def test_no_se_salta_pasos(self, sesion: Session) -> None:
-        pedido = bd.crear_pedido(sesion, nuevo_usuario(sesion), {CIEN_AÑOS: 1})
+        pedido = crear_pedido(sesion, nuevo_usuario(sesion), {CIEN_AÑOS: 1})
 
         with pytest.raises(TransicionEstatusError):
-            bd.cambiar_estatus(sesion, pedido.id, "enviado")
+            cambiar_estatus(sesion, pedido.id, "enviado")
         with pytest.raises(TransicionEstatusError):
-            bd.cambiar_estatus(sesion, pedido.id, "inventado")
+            cambiar_estatus(sesion, pedido.id, "inventado")
 
     def test_cancelar_regresa_stock(self, sesion: Session) -> None:
-        pedido = bd.crear_pedido(sesion, nuevo_usuario(sesion), {CIEN_AÑOS: 2})
-        bd.cambiar_estatus(sesion, pedido.id, "pagado")
+        pedido = crear_pedido(sesion, nuevo_usuario(sesion), {CIEN_AÑOS: 2})
+        cambiar_estatus(sesion, pedido.id, "pagado")
 
-        assert bd.cambiar_estatus(sesion, pedido.id, "cancelado").estatus == "cancelado"
+        assert cambiar_estatus(sesion, pedido.id, "cancelado").estatus == "cancelado"
         libro = bd.obtener_libro(sesion, CIEN_AÑOS)
         assert libro is not None and libro.cantidad_disponible == 12
 
     def test_no_se_cancela_un_pedido_enviado(self, sesion: Session) -> None:
-        pedido = bd.crear_pedido(sesion, nuevo_usuario(sesion), {CIEN_AÑOS: 1})
-        bd.cambiar_estatus(sesion, pedido.id, "pagado")
-        bd.cambiar_estatus(sesion, pedido.id, "enviado")
+        pedido = crear_pedido(sesion, nuevo_usuario(sesion), {CIEN_AÑOS: 1})
+        cambiar_estatus(sesion, pedido.id, "pagado")
+        cambiar_estatus(sesion, pedido.id, "enviado")
 
         with pytest.raises(TransicionEstatusError):
-            bd.cancelar_pedido(sesion, pedido.id)
+            cancelar_pedido(sesion, pedido.id)
         libro = bd.obtener_libro(sesion, CIEN_AÑOS)
         assert libro is not None and libro.cantidad_disponible == 11
 
     def test_pedido_inexistente(self, sesion: Session) -> None:
         with pytest.raises(PedidoNoEncontradoError):
-            bd.cambiar_estatus(sesion, 999, "pagado")
+            cambiar_estatus(sesion, 999, "pagado")
         assert bd.obtener_pedido(sesion, 999) is None

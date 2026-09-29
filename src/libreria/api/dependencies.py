@@ -3,6 +3,10 @@
 Cada función se declara una vez y los routers la piden con Depends(...).
 Para no repetir `Annotated[..., Depends(...)]` en cada endpoint, al final de
 cada bloque hay un alias (SesionDep, LibroDep, ...).
+
+También es la RAÍZ DE COMPOSICIÓN de la API: el único lugar que conoce el
+adaptador concreto (UnidadDeTrabajoSQL) y arma los casos de uso con él. Los
+routers solo piden el caso de uso ya armado (CrearPedidoDep, ...).
 """
 
 import os
@@ -18,8 +22,11 @@ from sqlalchemy.orm import Session
 
 from libreria import basedatos as bd
 from libreria.api import seguridad
+from libreria.casos_uso import AgregarLibro, CambiarEstatusPedido, CrearPedido
 from libreria.modelos import Libro, Usuario
 from libreria.pedidos import Pedido
+from libreria.puertos import UnidadDeTrabajo
+from libreria.repositorios_sql import UnidadDeTrabajoSQL
 
 # Tipo del parámetro `responses` de los decoradores de FastAPI (documenta errores en /docs)
 type Respuestas = dict[int | str, dict[str, Any]]
@@ -48,6 +55,34 @@ def obtener_sesion() -> Iterator[Session]:
 
 
 SesionDep = Annotated[Session, Depends(obtener_sesion)]
+
+
+# ---------------------------------------------------------------------------
+# Casos de uso (wiring)
+# ---------------------------------------------------------------------------
+def obtener_uow(sesion: SesionDep) -> UnidadDeTrabajo:
+    """Aquí se elige el adaptador. Los casos de uso solo ven el puerto."""
+    return UnidadDeTrabajoSQL(sesion)
+
+
+UowDep = Annotated[UnidadDeTrabajo, Depends(obtener_uow)]
+
+
+def caso_crear_pedido(uow: UowDep) -> CrearPedido:
+    return CrearPedido(uow)
+
+
+def caso_cambiar_estatus(uow: UowDep) -> CambiarEstatusPedido:
+    return CambiarEstatusPedido(uow)
+
+
+def caso_agregar_libro(uow: UowDep) -> AgregarLibro:
+    return AgregarLibro(uow)
+
+
+CrearPedidoDep = Annotated[CrearPedido, Depends(caso_crear_pedido)]
+CambiarEstatusDep = Annotated[CambiarEstatusPedido, Depends(caso_cambiar_estatus)]
+AgregarLibroDep = Annotated[AgregarLibro, Depends(caso_agregar_libro)]
 
 
 # ---------------------------------------------------------------------------
