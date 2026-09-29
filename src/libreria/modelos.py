@@ -1,4 +1,4 @@
-from typing import Any, Self, TypedDict
+from typing import Any, Literal, Self, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -87,6 +87,22 @@ class Libro(BaseModel):
     def a_dict(self) -> dict[str, Any]:
         """Convierte el Libro (incluyendo su Autor) a diccionario para guardarlo en JSON."""
         return self.model_dump()
+
+
+Rol = Literal["cliente", "admin"]
+
+
+class Usuario(BaseModel):
+    """Cliente o administrador de la librería."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    id: int | None = None  # None mientras no se guarde en la base
+    nombre: str = Field(min_length=1)
+    email: str = Field(min_length=3)
+    telefono: str | None = None
+    rol: Rol = "cliente"
+    # password_hash NO está aquí a propósito: así nunca sale de basedatos.py por accidente
 
 
 class Direccion(TypedDict):

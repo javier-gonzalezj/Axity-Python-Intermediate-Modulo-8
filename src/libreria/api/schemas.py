@@ -24,8 +24,7 @@ from pydantic import (
     model_validator,
 )
 
-from libreria.basedatos import Rol
-from libreria.modelos import Autor, Libro
+from libreria.modelos import Autor, Libro, Rol
 from libreria.pedidos import Estatus
 
 _PATRON_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")

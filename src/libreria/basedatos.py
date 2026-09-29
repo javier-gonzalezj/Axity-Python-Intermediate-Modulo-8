@@ -26,9 +26,8 @@ import logging
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, cast
 
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     JSON,
     CheckConstraint,
@@ -48,35 +47,20 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
 from libreria import pedidos
-from libreria.excepciones import LibreriaError, LibroInvalidoError
-from libreria.modelos import Autor, Libreria, Libro
+from libreria.excepciones import (
+    LibreriaError,
+    LibroInvalidoError,
+    LibroNoEncontradoError,
+    PedidoNoEncontradoError,
+    RegistroEnUsoError,
+    UsuarioNoEncontradoError,
+)
+from libreria.modelos import Autor, Libreria, Libro, Rol, Usuario
 from libreria.pedidos import Estatus, Pedido, PedidoItem
 
 log = logging.getLogger(__name__)
 
 URL_BD = "sqlite:///data/libreria.db"
-
-
-# ---------------------------------------------------------------------------
-# Excepciones nuevas
-# ---------------------------------------------------------------------------
-class UsuarioNoEncontradoError(LibreriaError):
-    """El usuario indicado no existe."""
-
-
-class PedidoNoEncontradoError(LibreriaError):
-    """El pedido indicado no existe."""
-
-
-class LibroNoEncontradoError(LibroInvalidoError):
-    """El libro indicado no existe en la base."""
-
-
-class RegistroEnUsoError(LibreriaError):
-    """No se puede borrar un registro porque otros dependen de él (p. ej. tiene pedidos)."""
-
-
-Rol = Literal["cliente", "admin"]
 
 
 # ---------------------------------------------------------------------------
@@ -170,20 +154,6 @@ class PedidoItemDB(Base):
 
 
 # ---------------------------------------------------------------------------
-# Modelos pydantic (lo que ve el resto del programa)
-# ---------------------------------------------------------------------------
-class Usuario(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    id: int | None = None  # None mientras no se guarde en la base
-    nombre: str = Field(min_length=1)
-    email: str = Field(min_length=3)
-    telefono: str | None = None
-    rol: Rol = "cliente"
-    # password_hash NO está aquí a propósito: así nunca sale de basedatos.py por accidente
-
-
-# ---------------------------------------------------------------------------
 # Motor (conexión)
 # ---------------------------------------------------------------------------
 def crear_motor(url: str = URL_BD, echo: bool = False, **opciones: Any) -> Engine:
@@ -218,7 +188,8 @@ def crear_esquema(motor: Engine) -> None:
 # ---------------------------------------------------------------------------
 # Conversiones entre tablas y modelos pydantic
 # ---------------------------------------------------------------------------
-def _a_libro(fila: LibroDB) -> Libro:
+# Son públicas porque también las usan los repositorios de repositorios_sql.py.
+def fila_a_libro(fila: LibroDB) -> Libro:
     return Libro(
         isbn=fila.isbn,
         titulo=fila.titulo,
@@ -232,7 +203,7 @@ def _a_libro(fila: LibroDB) -> Libro:
     )
 
 
-def _a_libro_db(libro: Libro) -> LibroDB:
+def libro_a_fila(libro: Libro) -> LibroDB:
     return LibroDB(
         isbn=libro.isbn,
         titulo=libro.titulo,
@@ -246,7 +217,7 @@ def _a_libro_db(libro: Libro) -> LibroDB:
     )
 
 
-def _a_usuario(fila: UsuarioDB) -> Usuario:
+def fila_a_usuario(fila: UsuarioDB) -> Usuario:
     return Usuario(
         id=fila.id,
         nombre=fila.nombre,
@@ -256,7 +227,7 @@ def _a_usuario(fila: UsuarioDB) -> Usuario:
     )
 
 
-def _a_pedido(fila: PedidoDB) -> Pedido:
+def fila_a_pedido(fila: PedidoDB) -> Pedido:
     return Pedido(
         id=fila.id,
         usuario_id=fila.usuario_id,
@@ -281,7 +252,7 @@ def guardar_libro(sesion: Session, libro: Libro) -> None:
     if sesion.get(LibroDB, libro.isbn) is not None:
         raise LibroInvalidoError(f"Ya existe un libro con ISBN {libro.isbn}")
 
-    sesion.add(_a_libro_db(libro))
+    sesion.add(libro_a_fila(libro))
     sesion.commit()
 
 
@@ -293,7 +264,7 @@ def importar_catalogo(sesion: Session, data: Libreria) -> int:
     existentes = set(sesion.scalars(select(LibroDB.isbn)))
     nuevos = [libro for libro in data["libros"] if libro.isbn not in existentes]
 
-    sesion.add_all(_a_libro_db(libro) for libro in nuevos)
+    sesion.add_all(libro_a_fila(libro) for libro in nuevos)
     sesion.commit()
 
     log.info("Catálogo importado: %d libros nuevos", len(nuevos))
@@ -302,12 +273,12 @@ def importar_catalogo(sesion: Session, data: Libreria) -> int:
 
 def obtener_libro(sesion: Session, isbn: str) -> Libro | None:
     fila = sesion.get(LibroDB, isbn)
-    return _a_libro(fila) if fila else None
+    return fila_a_libro(fila) if fila else None
 
 
 def listar_libros(sesion: Session) -> list[Libro]:
     filas = sesion.scalars(select(LibroDB).order_by(LibroDB.titulo))
-    return [_a_libro(fila) for fila in filas]
+    return [fila_a_libro(fila) for fila in filas]
 
 
 def actualizar_libro(
@@ -338,7 +309,7 @@ def actualizar_libro(
     if "cantidad_disponible" in cambios:
         cambios["en_stock"] = cambios["cantidad_disponible"] > 0
 
-    actualizado = Libro.desde_dict({**_a_libro(fila).a_dict(), **cambios})  # valida
+    actualizado = Libro.desde_dict({**fila_a_libro(fila).a_dict(), **cambios})  # valida
 
     fila.precio = actualizado.precio
     fila.cantidad_disponible = actualizado.cantidad_disponible
@@ -395,22 +366,22 @@ def crear_usuario(
         sesion.rollback()
         raise LibreriaError(f"Ya existe un usuario con email {usuario.email}") from None
 
-    return _a_usuario(fila)  # después del commit, fila.id ya tiene valor
+    return fila_a_usuario(fila)  # después del commit, fila.id ya tiene valor
 
 
 def obtener_usuario(sesion: Session, usuario_id: int) -> Usuario | None:
     fila = sesion.get(UsuarioDB, usuario_id)
-    return _a_usuario(fila) if fila else None
+    return fila_a_usuario(fila) if fila else None
 
 
 def buscar_usuario_por_email(sesion: Session, email: str) -> Usuario | None:
     fila = sesion.scalar(select(UsuarioDB).where(UsuarioDB.email == email.strip()))
-    return _a_usuario(fila) if fila else None
+    return fila_a_usuario(fila) if fila else None
 
 
 def listar_usuarios(sesion: Session) -> list[Usuario]:
     filas = sesion.scalars(select(UsuarioDB).order_by(UsuarioDB.nombre))
-    return [_a_usuario(fila) for fila in filas]
+    return [fila_a_usuario(fila) for fila in filas]
 
 
 def actualizar_usuario(
@@ -468,7 +439,7 @@ def cambiar_rol(sesion: Session, usuario_id: int, rol: Rol) -> Usuario:
     fila.rol = rol
     sesion.commit()
     log.info("Usuario %s ahora tiene rol %s", usuario_id, rol)
-    return _a_usuario(fila)
+    return fila_a_usuario(fila)
 
 
 def eliminar_usuario(sesion: Session, usuario_id: int) -> None:
@@ -503,7 +474,7 @@ def crear_pedido(sesion: Session, usuario_id: int, lineas: dict[str, int]) -> Pe
 
         # filas -> dominio (los ISBN que no existen simplemente no se incluyen)
         filas = _filas_libros(sesion, lineas)
-        libros = {isbn: _a_libro(fila) for isbn, fila in filas.items()}
+        libros = {isbn: fila_a_libro(fila) for isbn, fila in filas.items()}
 
         pedido = pedidos.crear_pedido(usuario_id, lineas, libros, fecha=datetime.now())
 
@@ -529,19 +500,19 @@ def crear_pedido(sesion: Session, usuario_id: int, lineas: dict[str, int]) -> Pe
         raise
 
     log.info("Pedido %s creado para usuario %s", fila_pedido.id, usuario_id)
-    return _a_pedido(fila_pedido)
+    return fila_a_pedido(fila_pedido)
 
 
 def obtener_pedido(sesion: Session, pedido_id: int) -> Pedido | None:
     fila = sesion.get(PedidoDB, pedido_id)
-    return _a_pedido(fila) if fila else None
+    return fila_a_pedido(fila) if fila else None
 
 
 def pedidos_de_usuario(sesion: Session, usuario_id: int) -> list[Pedido]:
     filas = sesion.scalars(
         select(PedidoDB).where(PedidoDB.usuario_id == usuario_id).order_by(PedidoDB.fecha)
     )
-    return [_a_pedido(fila) for fila in filas]
+    return [fila_a_pedido(fila) for fila in filas]
 
 
 def listar_pedidos(sesion: Session, estatus: str | None = None) -> list[Pedido]:
@@ -549,7 +520,7 @@ def listar_pedidos(sesion: Session, estatus: str | None = None) -> list[Pedido]:
     consulta = select(PedidoDB).order_by(PedidoDB.fecha)
     if estatus is not None:
         consulta = consulta.where(PedidoDB.estatus == estatus)
-    return [_a_pedido(fila) for fila in sesion.scalars(consulta)]
+    return [fila_a_pedido(fila) for fila in sesion.scalars(consulta)]
 
 
 def cambiar_estatus(sesion: Session, pedido_id: int, nuevo: str) -> Pedido:
@@ -562,9 +533,9 @@ def cambiar_estatus(sesion: Session, pedido_id: int, nuevo: str) -> Pedido:
         raise PedidoNoEncontradoError(f"No existe el pedido {pedido_id}")
 
     # filas -> dominio
-    pedido = _a_pedido(fila)
+    pedido = fila_a_pedido(fila)
     filas_libros = {item.isbn: item.libro for item in fila.items}
-    libros = {isbn: _a_libro(fila_libro) for isbn, fila_libro in filas_libros.items()}
+    libros = {isbn: fila_a_libro(fila_libro) for isbn, fila_libro in filas_libros.items()}
     anterior = pedido.estatus
 
     pedidos.cambiar_estatus(pedido, nuevo, libros)  # el dominio decide (o lanza error)

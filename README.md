@@ -268,7 +268,17 @@ Cómo funciona:
 
 La tendencia de las ventas sintéticas está escrita a mano en `datos_sinteticos.popularidad()` (thrillers, fantasía y novelas baratas se venden más; poesía y ensayo, menos). Un modelo entrenado con esos datos solo aprende esa regla: sirve para practicar el flujo, no para decidir qué libros comprar. `importancias()` muestra qué rasgos usó el modelo para compararlos con la regla.
 
-## Cambios recientes: reglas de pedidos en el dominio (arquitectura hexagonal)
+## Cambios recientes: puertos de la base de datos y unidad de trabajo (paso 2)
+
+Segundo paso hacia la arquitectura hexagonal: el núcleo ya puede hablar con la base de datos sin conocer SQLAlchemy. Por ahora estas piezas solo las usan sus pruebas; el siguiente paso (casos de uso) conectará la API a ellas.
+
+- **Puertos nuevos** en `puertos.py`: `RepositorioLibros`, `RepositorioPedidos`, `RepositorioUsuarios` y `UnidadDeTrabajo`. Reciben y devuelven objetos del dominio, nunca filas ni sesiones, y solo tienen los métodos que usarán los casos de uso de pedidos.
+- **Unidad de trabajo**: los repositorios nunca hacen commit. `with uow: ... uow.confirmar()` guarda todos los cambios juntos; si no se confirma o hay una excepción, al salir del `with` se revierte todo.
+- **Adaptadores SQL** en `repositorios_sql.py` (nuevo): `LibrosSQL`, `PedidosSQL`, `UsuariosSQL` y `UnidadDeTrabajoSQL`. Reutilizan las tablas y las funciones de traducción de `basedatos.py` (`fila_a_libro`, `fila_a_pedido`, ...), que ahora son públicas. Los errores de SQLAlchemy se traducen a `PersistenciaError`.
+- **`Usuario` y `Rol` pasan a `modelos.py`**, y los errores `LibroNoEncontradoError`, `UsuarioNoEncontradoError`, `PedidoNoEncontradoError` y `RegistroEnUsoError` pasan a `excepciones.py`. Así ni los puertos ni la API importan tipos desde la capa SQL.
+- **`tests/test_repositorios_sql.py`** (nuevo): pruebas de integración de los adaptadores con SQLite en memoria, incluida la garantía de "todo o nada" de la unidad de trabajo.
+
+## Cambios anteriores: reglas de pedidos en el dominio (paso 1)
 
 Las reglas de los pedidos vivían dentro de `basedatos.py`, mezcladas con SQLAlchemy. Ahora viven en el dominio, sin base de datos ni HTTP:
 
@@ -314,7 +324,8 @@ libreria/
 │   │   └── routers/           # auth.py, libros.py, usuarios.py, pedidos.py, reportes.py
 │   ├── modelos.py             # modelos Libro y Autor (pydantic), con el inventario del libro
 │   ├── pedidos.py             # dominio de pedidos: Pedido, estatus, stock y cancelación
-│   ├── puertos.py             # puertos (Protocol) que usan los servicios
+│   ├── puertos.py             # puertos (Protocol): catálogo, repositorios y unidad de trabajo
+│   ├── repositorios_sql.py    # adaptadores SQLAlchemy de los puertos y unidad de trabajo
 │   ├── servicios.py           # casos de uso del catálogo (ServicioCatalogo)
 │   ├── almacenamiento.py      # lectura y escritura del catálogo JSON
 │   ├── basedatos.py           # adaptador SQLAlchemy: tablas y traducción filas <-> dominio
@@ -337,6 +348,7 @@ libreria/
 │   ├── test_cache.py          # decorador @cache_temporal (con reloj falso)
 │   ├── test_portadas_concurrentes.py  # descarga en lote (async), semáforo y @reintentar_async
 │   ├── test_basedatos.py      # pedidos y reportes
+│   ├── test_repositorios_sql.py  # repositorios SQL y unidad de trabajo (todo o nada)
 │   ├── test_crud.py           # CRUD de usuarios, libros y estatus de pedidos
 │   ├── test_api.py            # endpoints, login, tokens y permisos con TestClient
 │   ├── test_migraciones.py    # upgrade/downgrade de Alembic en memoria
@@ -354,7 +366,7 @@ libreria/
 poetry run pytest
 ```
 
-`test_pedidos.py` prueba las reglas de pedidos directamente sobre objetos del dominio: no necesita base de datos. Las pruebas de `basedatos.py` usan una base SQLite en memoria, así que no tocan `data/libreria.db`. `test_migraciones.py` aplica y revierte las migraciones de Alembic sobre una base en memoria y verifica que coincidan con los modelos (lo mismo que `alembic check`). `test_api.py` prueba los endpoints con `TestClient` y reemplaza la sesión de base de datos por una en memoria con `app.dependency_overrides`. Las pruebas de `buscador.py` usan `httpx.MockTransport` para simular las respuestas de Open Library, así que no necesitan conexión a internet. `test_portadas_concurrentes.py` usa el mismo `MockTransport` con `httpx.AsyncClient` y ejecuta cada corrutina con `asyncio.run()`, así que no necesita plugins extra de pytest. Una de sus pruebas simula una red lenta para comprobar que el semáforo nunca deja más descargas simultáneas de las permitidas. `test_cache.py` simula el paso del tiempo con un reloj falso, así las pruebas de caducidad no esperan de verdad; `conftest.py` limpia la caché de ISBN antes de cada prueba. `test_prediccion.py` genera ventas sintéticas con semilla fija y entrena el modelo una sola vez para todo el archivo (fixture con `scope="module"`); comprueba, entre otras cosas, que el modelo supera claramente al azar y que las existencias no cambian la predicción.
+`test_pedidos.py` prueba las reglas de pedidos directamente sobre objetos del dominio: no necesita base de datos. `test_repositorios_sql.py` prueba los adaptadores SQL a través del puerto `UnidadDeTrabajo`, sobre la misma base en memoria. Las pruebas de `basedatos.py` usan una base SQLite en memoria, así que no tocan `data/libreria.db`. `test_migraciones.py` aplica y revierte las migraciones de Alembic sobre una base en memoria y verifica que coincidan con los modelos (lo mismo que `alembic check`). `test_api.py` prueba los endpoints con `TestClient` y reemplaza la sesión de base de datos por una en memoria con `app.dependency_overrides`. Las pruebas de `buscador.py` usan `httpx.MockTransport` para simular las respuestas de Open Library, así que no necesitan conexión a internet. `test_portadas_concurrentes.py` usa el mismo `MockTransport` con `httpx.AsyncClient` y ejecuta cada corrutina con `asyncio.run()`, así que no necesita plugins extra de pytest. Una de sus pruebas simula una red lenta para comprobar que el semáforo nunca deja más descargas simultáneas de las permitidas. `test_cache.py` simula el paso del tiempo con un reloj falso, así las pruebas de caducidad no esperan de verdad; `conftest.py` limpia la caché de ISBN antes de cada prueba. `test_prediccion.py` genera ventas sintéticas con semilla fija y entrena el modelo una sola vez para todo el archivo (fixture con `scope="module"`); comprueba, entre otras cosas, que el modelo supera claramente al azar y que las existencias no cambian la predicción.
 
 ### Calidad del código
 

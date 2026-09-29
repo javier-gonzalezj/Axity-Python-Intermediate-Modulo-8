@@ -9,6 +9,7 @@ from libreria import basedatos as bd
 from libreria.api import seguridad
 from libreria.api.dependencies import SesionDep, UsuarioActualDep
 from libreria.api.schemas import PasswordUpdate, Token, UsuarioCreate, UsuarioRead
+from libreria.modelos import Usuario
 
 router = APIRouter(prefix="/auth", tags=["autenticación"])
 
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/auth", tags=["autenticación"])
     summary="Crear una cuenta de cliente",
     responses={409: {"description": "Ya existe un usuario con ese email"}},
 )
-def registrarse(datos: UsuarioCreate, sesion: SesionDep) -> bd.Usuario:
+def registrarse(datos: UsuarioCreate, sesion: SesionDep) -> Usuario:
     if bd.buscar_usuario_por_email(sesion, datos.email) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Ya existe un usuario con ese email")
     return bd.crear_usuario(
@@ -65,7 +66,7 @@ def iniciar_sesion(
 
 
 @router.get("/yo", response_model=UsuarioRead, summary="Mi cuenta")
-def mi_cuenta(actual: UsuarioActualDep) -> bd.Usuario:
+def mi_cuenta(actual: UsuarioActualDep) -> Usuario:
     return actual
 
 

@@ -10,13 +10,16 @@ y abre http://127.0.0.1:8000/docs
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from libreria import basedatos as bd
 from libreria.api.routers import auth, libros, pedidos, reportes, usuarios
 from libreria.excepciones import (
     LibreriaError,
     LibroInvalidoError,
+    LibroNoEncontradoError,
+    PedidoNoEncontradoError,
+    RegistroEnUsoError,
     StockInsuficienteError,
     TransicionEstatusError,
+    UsuarioNoEncontradoError,
 )
 
 app = FastAPI(
@@ -40,11 +43,11 @@ app.include_router(reportes.router)
 # gana, así que las más específicas van antes (LibroNoEncontradoError hereda
 # de LibroInvalidoError).
 CODIGOS_HTTP: list[tuple[type[LibreriaError], int]] = [
-    (bd.LibroNoEncontradoError, status.HTTP_404_NOT_FOUND),
-    (bd.UsuarioNoEncontradoError, status.HTTP_404_NOT_FOUND),
-    (bd.PedidoNoEncontradoError, status.HTTP_404_NOT_FOUND),
+    (LibroNoEncontradoError, status.HTTP_404_NOT_FOUND),
+    (UsuarioNoEncontradoError, status.HTTP_404_NOT_FOUND),
+    (PedidoNoEncontradoError, status.HTTP_404_NOT_FOUND),
     (StockInsuficienteError, status.HTTP_409_CONFLICT),
-    (bd.RegistroEnUsoError, status.HTTP_409_CONFLICT),
+    (RegistroEnUsoError, status.HTTP_409_CONFLICT),
     (TransicionEstatusError, status.HTTP_409_CONFLICT),
     (LibroInvalidoError, 422),  # datos que la base no puede procesar
 ]

@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 
 from libreria import basedatos as bd
 from libreria.almacenamiento import cargar_datos
-from libreria.excepciones import LibreriaError, LibroInvalidoError, StockInsuficienteError
+from libreria.excepciones import (
+    LibreriaError,
+    LibroInvalidoError,
+    StockInsuficienteError,
+    UsuarioNoEncontradoError,
+)
 from tests.conftest import CATALOGO
 
 CIEN_AÑOS = "978-607-07-1234-5"  # 12 ejemplares, $349.90
@@ -69,7 +74,7 @@ def test_pedido_con_errores(sesion: Session) -> None:
     ana = bd.crear_usuario(sesion, "Ana", "ana@mail.com")
     assert ana.id is not None
 
-    with pytest.raises(bd.UsuarioNoEncontradoError):
+    with pytest.raises(UsuarioNoEncontradoError):
         bd.crear_pedido(sesion, 999, {CIEN_AÑOS: 1})
     with pytest.raises(LibroInvalidoError):
         bd.crear_pedido(sesion, ana.id, {"no-existe": 1})

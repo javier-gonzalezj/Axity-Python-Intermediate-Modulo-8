@@ -30,6 +30,26 @@ class ServicioExternoError(LibreriaError):
     """Se lanza cuando no se puede consultar un servicio de internet (p. ej. Open Library)."""
 
 
+class LibroNoEncontradoError(LibroInvalidoError):
+    """Se lanza cuando el libro indicado no existe."""
+
+
+class UsuarioNoEncontradoError(LibreriaError):
+    """Se lanza cuando el usuario indicado no existe."""
+
+
+class PedidoNoEncontradoError(LibreriaError):
+    """Se lanza cuando el pedido indicado no existe."""
+
+
+class RegistroEnUsoError(LibreriaError):
+    """Se lanza al borrar un registro del que otros dependen (p. ej. un libro con ventas)."""
+
+
+class PersistenciaError(LibreriaError):
+    """Se lanza cuando la base de datos no pudo completar una operación."""
+
+
 class CatalogoNoGuardadoError(LibreriaError):
     """Se lanza cuando no se pudo guardar el catálogo y se descartaron los cambios."""
 

@@ -27,6 +27,7 @@ from libreria.api.schemas import (
     UsuarioRead,
     UsuarioUpdate,
 )
+from libreria.modelos import Usuario
 from libreria.pedidos import Pedido
 
 router = APIRouter(
@@ -51,7 +52,7 @@ def _email_disponible(sesion: Session, email: str, excepto_id: int | None = None
     summary="Listar usuarios",
     dependencies=[Depends(requiere_admin)],
 )
-def listar_usuarios(sesion: SesionDep, pagina: PaginacionDep) -> list[bd.Usuario]:
+def listar_usuarios(sesion: SesionDep, pagina: PaginacionDep) -> list[Usuario]:
     return pagina.aplicar(bd.listar_usuarios(sesion))
 
 
@@ -63,7 +64,7 @@ def listar_usuarios(sesion: SesionDep, pagina: PaginacionDep) -> list[bd.Usuario
     dependencies=[Depends(requiere_admin)],
     responses=_EMAIL_REPETIDO,
 )
-def crear_usuario(datos: UsuarioAdminCreate, sesion: SesionDep) -> bd.Usuario:
+def crear_usuario(datos: UsuarioAdminCreate, sesion: SesionDep) -> Usuario:
     _email_disponible(sesion, datos.email)
     return bd.crear_usuario(
         sesion,
@@ -81,7 +82,7 @@ def crear_usuario(datos: UsuarioAdminCreate, sesion: SesionDep) -> bd.Usuario:
     summary="Obtener un usuario",
     responses=_NO_ENCONTRADO,
 )
-def obtener_usuario(usuario: UsuarioAutorizadoDep) -> bd.Usuario:
+def obtener_usuario(usuario: UsuarioAutorizadoDep) -> Usuario:
     return usuario
 
 
@@ -93,7 +94,7 @@ def obtener_usuario(usuario: UsuarioAutorizadoDep) -> bd.Usuario:
 )
 def actualizar_usuario(
     usuario: UsuarioAutorizadoDep, cambios: UsuarioUpdate, sesion: SesionDep
-) -> bd.Usuario:
+) -> Usuario:
     assert usuario.id is not None  # viene de la base, siempre tiene id
     if cambios.email is not None:
         _email_disponible(sesion, cambios.email, excepto_id=usuario.id)
@@ -108,7 +109,7 @@ def actualizar_usuario(
 )
 def cambiar_rol(
     admin: AdminDep, usuario: UsuarioDep, cambio: RolUpdate, sesion: SesionDep
-) -> bd.Usuario:
+) -> Usuario:
     assert usuario.id is not None
     if usuario.id == admin.id and cambio.rol != "admin":
         # Evita que el último (o único) admin se quite el permiso por error

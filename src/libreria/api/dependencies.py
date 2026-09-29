@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from libreria import basedatos as bd
 from libreria.api import seguridad
-from libreria.modelos import Libro
+from libreria.modelos import Libro, Usuario
 from libreria.pedidos import Pedido
 
 # Tipo del parámetro `responses` de los decoradores de FastAPI (documenta errores en /docs)
@@ -69,7 +69,7 @@ def libro_existente(isbn: IsbnPath, sesion: SesionDep) -> Libro:
     return _o_404(bd.obtener_libro(sesion, isbn), f"No existe el libro {isbn}")
 
 
-def usuario_existente(usuario_id: IdPath, sesion: SesionDep) -> bd.Usuario:
+def usuario_existente(usuario_id: IdPath, sesion: SesionDep) -> Usuario:
     return _o_404(bd.obtener_usuario(sesion, usuario_id), f"No existe el usuario {usuario_id}")
 
 
@@ -78,7 +78,7 @@ def pedido_existente(pedido_id: IdPath, sesion: SesionDep) -> Pedido:
 
 
 LibroDep = Annotated[Libro, Depends(libro_existente)]
-UsuarioDep = Annotated[bd.Usuario, Depends(usuario_existente)]
+UsuarioDep = Annotated[Usuario, Depends(usuario_existente)]
 PedidoDep = Annotated[Pedido, Depends(pedido_existente)]
 
 
@@ -121,7 +121,7 @@ def _no_autenticado(mensaje: str) -> HTTPException:
     )
 
 
-def usuario_actual(token: Annotated[str, Depends(esquema_oauth2)], sesion: SesionDep) -> bd.Usuario:
+def usuario_actual(token: Annotated[str, Depends(esquema_oauth2)], sesion: SesionDep) -> Usuario:
     """El usuario dueño del token. 401 si el token no sirve o el usuario ya no existe."""
     try:
         usuario_id = seguridad.leer_token(token)
@@ -134,25 +134,25 @@ def usuario_actual(token: Annotated[str, Depends(esquema_oauth2)], sesion: Sesio
     return usuario
 
 
-UsuarioActualDep = Annotated[bd.Usuario, Depends(usuario_actual)]
+UsuarioActualDep = Annotated[Usuario, Depends(usuario_actual)]
 
 
 def _prohibido(mensaje: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=mensaje)
 
 
-def requiere_admin(actual: UsuarioActualDep) -> bd.Usuario:
+def requiere_admin(actual: UsuarioActualDep) -> Usuario:
     if actual.rol != "admin":
         raise _prohibido("Solo un administrador puede hacer esto")
     return actual
 
 
-AdminDep = Annotated[bd.Usuario, Depends(requiere_admin)]
+AdminDep = Annotated[Usuario, Depends(requiere_admin)]
 
 
 # El usuario autenticado va PRIMERO: así, sin token se responde 401 antes de
 # revelar si el registro existe (404).
-def usuario_autorizado(actual: UsuarioActualDep, usuario: UsuarioDep) -> bd.Usuario:
+def usuario_autorizado(actual: UsuarioActualDep, usuario: UsuarioDep) -> Usuario:
     """El usuario de la URL, si es uno mismo o si quien pregunta es admin."""
     if actual.rol != "admin" and actual.id != usuario.id:
         raise _prohibido("Solo puedes consultar o modificar tu propia cuenta")
@@ -166,5 +166,5 @@ def pedido_autorizado(actual: UsuarioActualDep, pedido: PedidoDep) -> Pedido:
     return pedido
 
 
-UsuarioAutorizadoDep = Annotated[bd.Usuario, Depends(usuario_autorizado)]
+UsuarioAutorizadoDep = Annotated[Usuario, Depends(usuario_autorizado)]
 PedidoAutorizadoDep = Annotated[Pedido, Depends(pedido_autorizado)]

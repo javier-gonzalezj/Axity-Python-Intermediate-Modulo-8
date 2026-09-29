@@ -5,7 +5,15 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from libreria import basedatos as bd
-from libreria.excepciones import LibreriaError, LibroInvalidoError, TransicionEstatusError
+from libreria.excepciones import (
+    LibreriaError,
+    LibroInvalidoError,
+    LibroNoEncontradoError,
+    PedidoNoEncontradoError,
+    RegistroEnUsoError,
+    TransicionEstatusError,
+    UsuarioNoEncontradoError,
+)
 
 CIEN_AÑOS = "978-607-07-1234-5"  # 12 ejemplares, $349.90
 RAYUELA = "978-84-9793-563-2"  # 5 ejemplares, $399.50
@@ -62,7 +70,7 @@ class TestUsuarios:
         assert ana is not None and ana.email == "ana@mail.com"  # el rollback lo dejó igual
 
     def test_actualizar_inexistente(self, sesion: Session) -> None:
-        with pytest.raises(bd.UsuarioNoEncontradoError):
+        with pytest.raises(UsuarioNoEncontradoError):
             bd.actualizar_usuario(sesion, 999, nombre="X")
 
     def test_eliminar(self, sesion: Session) -> None:
@@ -70,14 +78,14 @@ class TestUsuarios:
         bd.eliminar_usuario(sesion, ana_id)
         assert bd.obtener_usuario(sesion, ana_id) is None
 
-        with pytest.raises(bd.UsuarioNoEncontradoError):
+        with pytest.raises(UsuarioNoEncontradoError):
             bd.eliminar_usuario(sesion, ana_id)
 
     def test_no_se_elimina_usuario_con_pedidos(self, sesion: Session) -> None:
         ana_id = nuevo_usuario(sesion)
         bd.crear_pedido(sesion, ana_id, {RAYUELA: 1})
 
-        with pytest.raises(bd.RegistroEnUsoError):
+        with pytest.raises(RegistroEnUsoError):
             bd.eliminar_usuario(sesion, ana_id)
         assert bd.obtener_usuario(sesion, ana_id) is not None
 
@@ -114,7 +122,7 @@ class TestLibros:
         assert libro is not None and libro.precio == 399.50
 
     def test_actualizar_inexistente(self, sesion: Session) -> None:
-        with pytest.raises(bd.LibroNoEncontradoError):
+        with pytest.raises(LibroNoEncontradoError):
             bd.actualizar_libro(sesion, "no-existe", precio=1)
 
     def test_eliminar(self, sesion: Session) -> None:
@@ -127,7 +135,7 @@ class TestLibros:
     def test_no_se_elimina_libro_vendido(self, sesion: Session) -> None:
         bd.crear_pedido(sesion, nuevo_usuario(sesion), {RAYUELA: 1})
 
-        with pytest.raises(bd.RegistroEnUsoError):
+        with pytest.raises(RegistroEnUsoError):
             bd.eliminar_libro(sesion, RAYUELA)
         assert bd.obtener_libro(sesion, RAYUELA) is not None
 
@@ -171,6 +179,6 @@ class TestEstatusPedido:
         assert libro is not None and libro.cantidad_disponible == 11
 
     def test_pedido_inexistente(self, sesion: Session) -> None:
-        with pytest.raises(bd.PedidoNoEncontradoError):
+        with pytest.raises(PedidoNoEncontradoError):
             bd.cambiar_estatus(sesion, 999, "pagado")
         assert bd.obtener_pedido(sesion, 999) is None
