@@ -21,6 +21,7 @@ from libreria.casos_uso import (
     CrearPedidoComando,
 )
 from libreria.modelos import Libro
+from libreria.notificadores import NotificadorEnMemoria
 from libreria.pedidos import Pedido
 from libreria.repositorios_sql import UnidadDeTrabajoSQL
 
@@ -58,13 +59,14 @@ def sesion() -> Iterator[Session]:
 
 def crear_pedido(sesion: Session, usuario_id: int, lineas: dict[str, int]) -> Pedido:
     comando = CrearPedidoComando(usuario_id=usuario_id, lineas=lineas)
-    return CrearPedido(UnidadDeTrabajoSQL(sesion)).ejecutar(comando)
+    return CrearPedido(UnidadDeTrabajoSQL(sesion), NotificadorEnMemoria()).ejecutar(comando)
 
 
 def cambiar_estatus(sesion: Session, pedido_id: int | None, estatus: str) -> Pedido:
     assert pedido_id is not None
     comando = CambiarEstatusComando(pedido_id=pedido_id, estatus=estatus)
-    return CambiarEstatusPedido(UnidadDeTrabajoSQL(sesion)).ejecutar(comando)
+    caso = CambiarEstatusPedido(UnidadDeTrabajoSQL(sesion), NotificadorEnMemoria())
+    return caso.ejecutar(comando)
 
 
 def cancelar_pedido(sesion: Session, pedido_id: int | None) -> Pedido:

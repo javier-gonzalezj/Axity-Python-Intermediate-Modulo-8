@@ -185,6 +185,7 @@ El token solo guarda el id del usuario y su caducidad; el rol se lee de la base 
 |---|---|---|
 | `LIBRERIA_JWT_SECRETO` | Clave para firmar los tokens (mínimo 32 caracteres) | Una al azar en cada arranque: los tokens dejan de servir al reiniciar |
 | `LIBRERIA_JWT_MINUTOS` | Minutos de validez de cada token | 30 |
+| `LIBRERIA_URL_NOTIFICACIONES` | URL a la que se envían (POST con JSON) los avisos de pedidos | Sin valor: los avisos solo se escriben en el log |
 
 Para generar un secreto: `python -c "import secrets; print(secrets.token_urlsafe(48))"`. No lo subas a git.
 
@@ -268,7 +269,20 @@ Cómo funciona:
 
 La tendencia de las ventas sintéticas está escrita a mano en `datos_sinteticos.popularidad()` (thrillers, fantasía y novelas baratas se venden más; poesía y ensayo, menos). Un modelo entrenado con esos datos solo aprende esa regla: sirve para practicar el flujo, no para decidir qué libros comprar. `importancias()` muestra qué rasgos usó el modelo para compararlos con la regla.
 
-## Cambios recientes: casos de uso (paso 3)
+## Cambios recientes: notificaciones al cliente (puerto Notificador)
+
+Cuando se crea un pedido o cambia su estatus, el cliente recibe un aviso. El núcleo solo conoce el puerto `Notificador`; cómo viaja el aviso lo decide el adaptador.
+
+- **Puerto `Notificador`** en `puertos.py`, con el método `enviar(destinatario, asunto, mensaje)`. Si no se puede entregar el aviso, lanza `ServicioExternoError`.
+- **Adaptadores** en `notificadores.py` (nuevo):
+  - `NotificadorHTTP`: hace un POST con JSON (`{"destinatario", "asunto", "mensaje"}`) a `LIBRERIA_URL_NOTIFICACIONES`. Solo reintenta si no se pudo conectar: si se agota el tiempo esperando la respuesta, el aviso pudo haber llegado, y reintentar lo duplicaría. Los errores de `httpx` se traducen a `ServicioExternoError`.
+  - `NotificadorRegistro`: escribe el aviso en el log. La API lo usa cuando no hay URL configurada.
+  - `NotificadorEnMemoria`: guarda los avisos en una lista para las pruebas.
+- **Casos de uso**: `CrearPedido` y `CambiarEstatusPedido` avisan DESPUÉS de confirmar y fuera de la transacción: nunca se avisa de algo que se revirtió, y cancelar dos veces no manda dos avisos. Si el aviso falla, el pedido ya quedó guardado: solo se registra una advertencia.
+- **Raíz de composición**: `obtener_notificador()` en `api/dependencies.py` elige `NotificadorHTTP` o `NotificadorRegistro` según la variable de entorno.
+- **Pruebas**: `test_contrato_notificador.py` corre el contrato con `[http]` (usando `httpx.MockTransport`, sin red), `[registro]` y `[memoria]`. `test_notificador_http.py` prueba la petición y los errores (4xx/5xx, sin conexión, tiempo agotado). `test_casos_uso.py` y `test_api.py` revisan qué avisos se envían.
+
+## Cambios anteriores: casos de uso (paso 3)
 
 La API ya no orquesta nada: traduce HTTP a un comando, llama a un caso de uso y traduce el resultado (o el error) a una respuesta.
 
@@ -346,6 +360,7 @@ libreria/
 │   ├── modelos.py             # modelos Libro y Autor (pydantic), con el inventario del libro
 │   ├── pedidos.py             # dominio de pedidos: Pedido, estatus, stock y cancelación
 │   ├── casos_uso.py           # casos de uso: CrearPedido, CambiarEstatusPedido, AgregarLibro
+│   ├── notificadores.py       # adaptadores del Notificador: HTTP, registro (log) y memoria
 │   ├── puertos.py             # puertos (Protocol): catálogo, repositorios y unidad de trabajo
 │   ├── repositorios_sql.py    # adaptadores SQLAlchemy de los puertos y unidad de trabajo
 │   ├── repositorios_memoria.py  # adaptadores en memoria de los puertos (para pruebas)
@@ -374,6 +389,8 @@ libreria/
 │   ├── test_basedatos.py      # pedidos y reportes
 │   ├── test_contrato_repositorios.py  # contrato de la base: [sql] y [memoria]
 │   ├── test_contrato_catalogo.py  # contrato del catálogo: [json] y [memoria]
+│   ├── test_contrato_notificador.py  # contrato del notificador: [http], [registro] y [memoria]
+│   ├── test_notificador_http.py  # petición, errores y reintentos del notificador HTTP
 │   ├── test_crud.py           # CRUD de usuarios, libros y estatus de pedidos
 │   ├── test_api.py            # endpoints, login, tokens y permisos con TestClient
 │   ├── test_migraciones.py    # upgrade/downgrade de Alembic en memoria

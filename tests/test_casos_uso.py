@@ -6,7 +6,9 @@ memoria se comporta igual que la de SQL.
 
 Aquí no se vuelven a probar las reglas (eso es test_pedidos.py): se prueba la
 ORQUESTACIÓN. Que se guarde lo que se tiene que guardar, que se confirme una
-sola vez y que, si algo falla, no se confirme nada.
+sola vez y que, si algo falla, no se confirme nada. También los avisos: que
+lleguen después de confirmar, solo si algo cambió, y que un aviso fallido no
+deshaga el pedido.
 """
 
 from datetime import datetime
@@ -24,12 +26,15 @@ from libreria.excepciones import (
     LibroDuplicadoError,
     LibroInvalidoError,
     PedidoNoEncontradoError,
+    ServicioExternoError,
     StockInsuficienteError,
     TransicionEstatusError,
     UsuarioNoEncontradoError,
 )
 from libreria.modelos import Autor, Libro, Usuario
+from libreria.notificadores import Notificacion, NotificadorEnMemoria
 from libreria.pedidos import Pedido
+from libreria.puertos import Notificador
 from libreria.repositorios_memoria import UnidadDeTrabajoEnMemoria
 
 HOY = datetime(2026, 9, 29, 12, 0)
@@ -65,15 +70,22 @@ def stock(uow: UnidadDeTrabajoEnMemoria, isbn: str) -> int:
     return libro.cantidad_disponible
 
 
-def crear(uow: UnidadDeTrabajoEnMemoria, lineas: dict[str, int]) -> Pedido:
-    caso = CrearPedido(uow, ahora=lambda: HOY)  # reloj fijo
+def crear(
+    uow: UnidadDeTrabajoEnMemoria, lineas: dict[str, int], notificador: Notificador | None = None
+) -> Pedido:
+    caso = CrearPedido(uow, notificador or NotificadorEnMemoria(), ahora=lambda: HOY)  # reloj fijo
     return caso.ejecutar(CrearPedidoComando(usuario_id=ANA, lineas=lineas))
 
 
-def cambiar(uow: UnidadDeTrabajoEnMemoria, pedido: Pedido, estatus: str) -> Pedido:
+def cambiar(
+    uow: UnidadDeTrabajoEnMemoria,
+    pedido: Pedido,
+    estatus: str,
+    notificador: Notificador | None = None,
+) -> Pedido:
     assert pedido.id is not None
     comando = CambiarEstatusComando(pedido_id=pedido.id, estatus=estatus)
-    return CambiarEstatusPedido(uow).ejecutar(comando)
+    return CambiarEstatusPedido(uow, notificador or NotificadorEnMemoria()).ejecutar(comando)
 
 
 # ── CrearPedido ──────────────────────────────────────────────────────────────
@@ -94,7 +106,7 @@ class TestCrearPedido:
         assert uow.confirmaciones == 1
 
     def test_usuario_inexistente_no_toca_nada(self, uow: UnidadDeTrabajoEnMemoria) -> None:
-        caso = CrearPedido(uow, ahora=lambda: HOY)
+        caso = CrearPedido(uow, NotificadorEnMemoria(), ahora=lambda: HOY)
 
         with pytest.raises(UsuarioNoEncontradoError):
             caso.ejecutar(CrearPedidoComando(usuario_id=999, lineas={"A": 1}))
@@ -165,7 +177,7 @@ class TestCambiarEstatusPedido:
 
     def test_pedido_inexistente(self, uow: UnidadDeTrabajoEnMemoria) -> None:
         with pytest.raises(PedidoNoEncontradoError):
-            CambiarEstatusPedido(uow).ejecutar(
+            CambiarEstatusPedido(uow, NotificadorEnMemoria()).ejecutar(
                 CambiarEstatusComando(pedido_id=999, estatus="pagado")
             )
 
@@ -186,3 +198,77 @@ class TestAgregarLibro:
 
         assert stock(uow, "A") == 5  # el original no se tocó
         assert uow.confirmaciones == 0
+
+
+# ── Avisos al cliente ────────────────────────────────────────────────────────
+
+
+class NotificadorQueFalla:
+    """Como si el servicio de avisos estuviera caído."""
+
+    def enviar(self, destinatario: str, asunto: str, mensaje: str) -> None:
+        raise ServicioExternoError("El servicio de avisos no responde")
+
+
+class TestNotificaciones:
+    def test_crear_avisa_al_cliente_con_el_resumen(self, uow: UnidadDeTrabajoEnMemoria) -> None:
+        avisos = NotificadorEnMemoria()
+
+        pedido = crear(uow, {"A": 2}, avisos)
+
+        assert len(avisos.enviados) == 1
+        aviso = avisos.enviados[0]
+        assert aviso.destinatario == "ana@mail.com"
+        assert aviso.asunto == f"Recibimos tu pedido #{pedido.id}"
+        assert "Libro A x2" in aviso.mensaje
+        assert "Total: $400.00" in aviso.mensaje
+
+    def test_si_crear_falla_no_se_avisa(self, uow: UnidadDeTrabajoEnMemoria) -> None:
+        avisos = NotificadorEnMemoria()
+
+        with pytest.raises(StockInsuficienteError):
+            crear(uow, {"B": 5}, avisos)
+
+        assert avisos.enviados == []  # nunca se avisa de algo que no se guardó
+
+    def test_cambiar_estatus_avisa_el_nuevo_estatus(self, uow: UnidadDeTrabajoEnMemoria) -> None:
+        pedido = crear(uow, {"A": 1})
+        avisos = NotificadorEnMemoria()
+
+        cambiar(uow, pedido, "pagado", avisos)
+
+        assert avisos.enviados == [
+            Notificacion(
+                "ana@mail.com",
+                f"Tu pedido #{pedido.id} ahora está pagado",
+                "Recibimos tu pago. Pronto enviaremos tus libros.",
+            )
+        ]
+
+    def test_sin_cambio_no_hay_aviso(self, uow: UnidadDeTrabajoEnMemoria) -> None:
+        pedido = crear(uow, {"A": 1})
+        cambiar(uow, pedido, "cancelado")
+        avisos = NotificadorEnMemoria()
+
+        cambiar(uow, pedido, "cancelado", avisos)  # ya estaba cancelado
+
+        assert avisos.enviados == []
+
+    def test_transicion_invalida_no_avisa(self, uow: UnidadDeTrabajoEnMemoria) -> None:
+        pedido = crear(uow, {"A": 1})
+        avisos = NotificadorEnMemoria()
+
+        with pytest.raises(TransicionEstatusError):
+            cambiar(uow, pedido, "enviado", avisos)
+
+        assert avisos.enviados == []
+
+    def test_un_aviso_fallido_no_deshace_el_pedido(
+        self, uow: UnidadDeTrabajoEnMemoria, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        pedido = crear(uow, {"A": 2}, NotificadorQueFalla())  # no lanza
+
+        assert pedido.id is not None
+        assert uow.pedidos.obtener(pedido.id) is not None  # el pedido sí quedó
+        assert stock(uow, "A") == 3
+        assert "No se pudo avisar a ana@mail.com" in caplog.text

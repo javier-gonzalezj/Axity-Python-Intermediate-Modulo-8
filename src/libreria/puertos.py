@@ -13,6 +13,8 @@ Hay dos familias de puertos:
   lo que necesitarán los casos de uso de pedidos para trabajar con la base de
   datos sin conocer SQLAlchemy. Solo tienen los métodos que esos casos de uso
   van a usar (principio de segregación de interfaces).
+- Notificador: avisarle algo a una persona (hoy, al cliente sobre su pedido),
+  sin saber si viaja por HTTP, correo o solo queda en el log.
 """
 
 from collections.abc import Iterable
@@ -130,3 +132,19 @@ class UnidadDeTrabajo(Protocol):
     def revertir(self) -> None:
         """Descarta los cambios que no se han confirmado."""
         ...
+
+
+# ── Notificaciones ───────────────────────────────────────────────────────────
+
+
+class Notificador(Protocol):
+    """Envía un aviso a una persona.
+
+    Contrato:
+    - El aviso llega completo (destinatario, asunto y mensaje, con acentos y
+      saltos de línea) y en el mismo orden en que se envió.
+    - Si no se puede entregar, lanza ServicioExternoError (nunca un error de
+      httpx, smtplib, etc.). Quien lo usa decide si eso es grave.
+    """
+
+    def enviar(self, destinatario: str, asunto: str, mensaje: str) -> None: ...

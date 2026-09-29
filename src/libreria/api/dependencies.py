@@ -24,8 +24,9 @@ from libreria import basedatos as bd
 from libreria.api import seguridad
 from libreria.casos_uso import AgregarLibro, CambiarEstatusPedido, CrearPedido
 from libreria.modelos import Libro, Usuario
+from libreria.notificadores import NotificadorHTTP, NotificadorRegistro
 from libreria.pedidos import Pedido
-from libreria.puertos import UnidadDeTrabajo
+from libreria.puertos import Notificador, UnidadDeTrabajo
 from libreria.repositorios_sql import UnidadDeTrabajoSQL
 
 # Tipo del parámetro `responses` de los decoradores de FastAPI (documenta errores en /docs)
@@ -68,12 +69,23 @@ def obtener_uow(sesion: SesionDep) -> UnidadDeTrabajo:
 UowDep = Annotated[UnidadDeTrabajo, Depends(obtener_uow)]
 
 
-def caso_crear_pedido(uow: UowDep) -> CrearPedido:
-    return CrearPedido(uow)
+def obtener_notificador() -> Notificador:
+    """Con la variable de entorno LIBRERIA_URL_NOTIFICACIONES los avisos se envían
+    por HTTP a esa URL; sin ella (p. ej. en desarrollo) solo se escriben en el log.
+    """
+    url = os.environ.get("LIBRERIA_URL_NOTIFICACIONES")
+    return NotificadorHTTP(url) if url else NotificadorRegistro()
 
 
-def caso_cambiar_estatus(uow: UowDep) -> CambiarEstatusPedido:
-    return CambiarEstatusPedido(uow)
+NotificadorDep = Annotated[Notificador, Depends(obtener_notificador)]
+
+
+def caso_crear_pedido(uow: UowDep, notificador: NotificadorDep) -> CrearPedido:
+    return CrearPedido(uow, notificador)
+
+
+def caso_cambiar_estatus(uow: UowDep, notificador: NotificadorDep) -> CambiarEstatusPedido:
+    return CambiarEstatusPedido(uow, notificador)
 
 
 def caso_agregar_libro(uow: UowDep) -> AgregarLibro:

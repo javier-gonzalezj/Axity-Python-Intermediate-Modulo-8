@@ -22,7 +22,8 @@ from libreria import basedatos as bd
 from libreria.almacenamiento import cargar_datos
 from libreria.api import seguridad
 from libreria.api.app import app
-from libreria.api.dependencies import obtener_sesion
+from libreria.api.dependencies import obtener_notificador, obtener_sesion
+from libreria.notificadores import NotificadorEnMemoria
 
 # Catálogo fijo, ver conftest.py
 CATALOGO = Path(__file__).parent / "datos" / "catalogo_prueba.json"
@@ -70,12 +71,19 @@ def motor() -> Iterator[Engine]:
 
 
 @pytest.fixture
-def cliente(motor: Engine) -> Iterator[TestClient]:
+def avisos() -> NotificadorEnMemoria:
+    """Los avisos que la API enviaría a los clientes (nunca salen a la red)."""
+    return NotificadorEnMemoria()
+
+
+@pytest.fixture
+def cliente(motor: Engine, avisos: NotificadorEnMemoria) -> Iterator[TestClient]:
     def sesion_de_prueba() -> Iterator[Session]:
         with Session(motor) as s:
             yield s
 
     app.dependency_overrides[obtener_sesion] = sesion_de_prueba
+    app.dependency_overrides[obtener_notificador] = lambda: avisos
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
@@ -425,6 +433,19 @@ class TestPedidos:
     def test_no_acepta_usuario_id_en_el_cuerpo(self, cliente: TestClient, ana: Headers) -> None:
         cuerpo = {"usuario_id": 1, "items": [{"isbn": RAYUELA, "cantidad": 1}]}
         assert cliente.post("/pedidos/", json=cuerpo, headers=ana).status_code == 422
+
+    def test_crear_y_pagar_avisan_a_la_clienta(
+        self, cliente: TestClient, admin: Headers, ana: Headers, avisos: NotificadorEnMemoria
+    ) -> None:
+        pedido = pedir(cliente, ana, RAYUELA, 1)
+        url = f"/pedidos/{pedido['id']}/estatus"
+        cliente.patch(url, json={"estatus": "pagado"}, headers=admin)
+
+        assert [a.destinatario for a in avisos.enviados] == ["ana@mail.com"] * 2
+        assert [a.asunto for a in avisos.enviados] == [
+            f"Recibimos tu pedido #{pedido['id']}",
+            f"Tu pedido #{pedido['id']} ahora está pagado",
+        ]
 
     def test_libro_repetido(self, cliente: TestClient, ana: Headers) -> None:
         items = [{"isbn": RAYUELA, "cantidad": 1}, {"isbn": RAYUELA, "cantidad": 2}]
