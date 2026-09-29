@@ -1,0 +1,27 @@
+# El repositorio git está en esta misma carpeta (libreria), junto a pyproject.toml,
+# así que los hooks corren desde aquí y `poetry run` encuentra el entorno.
+# Con pass_filenames: false las herramientas revisan todo el proyecto según su
+# configuración en pyproject.toml, no solo los archivos que cambiaron.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff (lint)
+        entry: poetry run ruff check --fix
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff (formato)
+        entry: poetry run ruff format
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+
+      - id: mypy
+        name: mypy (tipos)
+        entry: poetry run mypy
+        language: system
+        types: [python]
+        pass_filenames: false

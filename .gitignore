@@ -1,0 +1,21 @@
+__pycache__/
+logs/
+*.bak
+*.pyc
+.venv/
+data/exportaciones/
+data/portadas/
+data/*.db
+.coverage
+data/*.joblib
+
+# Cachés de herramientas y artefactos de pruebas
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+*.egg-info/
+dist/
+
+# Variables de entorno locales (p. ej. LIBRERIA_JWT_SECRETO)
+.env

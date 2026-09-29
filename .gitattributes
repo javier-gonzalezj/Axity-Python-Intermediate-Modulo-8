@@ -1,0 +1,9 @@
+# Git guarda los archivos de texto con fin de línea LF y en Windows los
+# entrega con CRLF. Así no aparecen diferencias falsas por los saltos de línea.
+* text=auto
+
+# Binarios: nunca se tocan
+*.jpg binary
+*.png binary
+*.db binary
+*.joblib binary

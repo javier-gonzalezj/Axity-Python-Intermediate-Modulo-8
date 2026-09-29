@@ -1,0 +1,179 @@
+{
+  "nombre": "Libreria Libros Libres",
+  "direccion": {
+    "calle": "Manuel Morelos 86",
+    "colonia": "Azcapotzalco",
+    "ciudad": "CDMX",
+    "cp": "02710"
+  },
+  "telefono": "55-5453-5251",
+  "horario": "10:00 - 22:00",
+  "libros": [
+    {
+      "isbn": "978-607-07-1234-5",
+      "titulo": "Cien años de soledad",
+      "autor": {
+        "nombre": "Gabriel García Márquez",
+        "nacionalidad": "Colombiana"
+      },
+      "genero": [
+        "Realismo mágico",
+        "Ficción"
+      ],
+      "año_publicacion": 1967,
+      "precio": 349.9,
+      "en_stock": true,
+      "cantidad_disponible": 12,
+      "editorial": "Sudamericana"
+    },
+    {
+      "isbn": "978-607-11-9876-3",
+      "titulo": "1984",
+      "autor": {
+        "nombre": "George Orwell",
+        "nacionalidad": "Británica"
+      },
+      "genero": [
+        "Distopía",
+        "Ciencia ficción"
+      ],
+      "año_publicacion": 1949,
+      "precio": 289.0,
+      "en_stock": false,
+      "cantidad_disponible": 0,
+      "editorial": "Debolsillo"
+    },
+    {
+      "isbn": "978-84-9793-563-2",
+      "titulo": "Rayuela",
+      "autor": {
+        "nombre": "Julio Cortázar",
+        "nacionalidad": "Argentina"
+      },
+      "genero": [
+        "Ficción experimental"
+      ],
+      "año_publicacion": 1963,
+      "precio": 399.5,
+      "en_stock": true,
+      "cantidad_disponible": 5,
+      "editorial": "Alfaguara"
+    },
+    {
+      "isbn": "978-84-663-7154-6",
+      "titulo": "El túnel",
+      "autor": {
+        "nombre": "Ernesto Sabato",
+        "nacionalidad": "Argentina"
+      },
+      "genero": [
+        "Ficción psicológica"
+      ],
+      "año_publicacion": 1948,
+      "precio": 259.0,
+      "en_stock": true,
+      "cantidad_disponible": 8,
+      "editorial": "Seix Barral"
+    },
+    {
+      "isbn": "978-607-39-4227-0",
+      "titulo": "Bucareli 158",
+      "autor": {
+        "nombre": "Jose Manuel Cuellar Moreno",
+        "nacionalidad": "Mexicana"
+      },
+      "genero": [
+        "Novela"
+      ],
+      "año_publicacion": 2026,
+      "precio": 278.01,
+      "en_stock": true,
+      "cantidad_disponible": 1,
+      "editorial": "TusQuets"
+    },
+    {
+      "isbn": "978-607-314-631-2",
+      "titulo": "Evangelia",
+      "autor": {
+        "nombre": "David Toscana",
+        "nacionalidad": "Mexicana"
+      },
+      "genero": [
+        "Novela",
+        "Ficción"
+      ],
+      "año_publicacion": 2016,
+      "precio": 1285.2,
+      "en_stock": true,
+      "cantidad_disponible": 2,
+      "editorial": "Alfaguara"
+    },
+    {
+      "isbn": "978-607-387-471-2",
+      "titulo": "El ejército ciego",
+      "autor": {
+        "nombre": "David Toscana",
+        "nacionalidad": "Mexicana"
+      },
+      "genero": [
+        "Novela",
+        "Ficción"
+      ],
+      "año_publicacion": 2026,
+      "precio": 200.14,
+      "en_stock": true,
+      "cantidad_disponible": 1,
+      "editorial": "Alfaguara"
+    },
+    {
+      "isbn": "9780307474728",
+      "titulo": "Cien años de soledad",
+      "autor": {
+        "nombre": "Gabriel García Márquez",
+        "nacionalidad": "Colombiana"
+      },
+      "genero": [
+        "Ficción",
+        "Realismo Mágico"
+      ],
+      "año_publicacion": 2009,
+      "precio": 1454.0,
+      "en_stock": true,
+      "cantidad_disponible": 1,
+      "editorial": "Alfaguara"
+    },
+    {
+      "isbn": "9780151660346",
+      "titulo": "1984",
+      "autor": {
+        "nombre": "George Orwell",
+        "nacionalidad": "Estadounidense"
+      },
+      "genero": [
+        "Ficción",
+        "Novela"
+      ],
+      "año_publicacion": 1984,
+      "precio": 450.0,
+      "en_stock": true,
+      "cantidad_disponible": 2,
+      "editorial": "Harcourt, Brace, Jovanovich"
+    },
+    {
+      "isbn": "9780679723165",
+      "titulo": "Lolita",
+      "autor": {
+        "nombre": "Vladimir Nabokov",
+        "nacionalidad": "Ruso"
+      },
+      "genero": [
+        "Ficción"
+      ],
+      "año_publicacion": 1989,
+      "precio": 1500.0,
+      "en_stock": true,
+      "cantidad_disponible": 1,
+      "editorial": "Vintage International"
+    }
+  ]
+}
