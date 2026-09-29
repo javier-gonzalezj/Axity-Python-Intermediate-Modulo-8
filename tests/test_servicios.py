@@ -1,4 +1,4 @@
-"""Pruebas de ServicioCatalogo usando adaptadores falsos del puerto RepositorioCatalogo.
+"""Pruebas de ServicioCatalogo usando adaptadores en memoria del puerto RepositorioCatalogo.
 
 Casi ninguna prueba toca el disco: el servicio recibe un repositorio en memoria
 (o uno que falla a propósito). Eso es justo lo que permite depender de un puerto.
@@ -19,6 +19,7 @@ from libreria.excepciones import (
 )
 from libreria.modelos import Autor, Libreria, Libro
 from libreria.puertos import RepositorioCatalogo
+from libreria.repositorios_memoria import CatalogoEnMemoria
 from libreria.servicios import ServicioCatalogo
 
 RAIZ = Path(__file__).parent.parent
@@ -31,26 +32,26 @@ ENCABEZADO_CSV = (
 
 
 # ── Adaptadores falsos ───────────────────────────────────────────────────────
-# No heredan de RepositorioCatalogo: cumplen el puerto por tener cargar() y guardar().
+# Se basan en CatalogoEnMemoria, que cumple el mismo contrato que CatalogoJSON
+# (ver test_contrato_catalogo.py). Aquí solo se le agrega lo que las pruebas
+# quieren observar: cuántas veces se guardó y qué se guardó (un "espía").
 
 
-class RepositorioEnMemoria:
-    """Guarda en una variable y cuenta cuántas veces se llamó a guardar()."""
+class RepositorioEspia(CatalogoEnMemoria):
+    """CatalogoEnMemoria que además cuenta cuántas veces se llamó a guardar()."""
 
     def __init__(self, data: Libreria) -> None:
-        self._data = data
+        super().__init__(data)
         self.guardados = 0
         self.isbns_guardados: list[str] = []
-
-    def cargar(self) -> Libreria:
-        return self._data
 
     def guardar(self, data: Libreria) -> None:
         self.guardados += 1
         self.isbns_guardados = [libro.isbn for libro in data["libros"]]
+        super().guardar(data)
 
 
-class RepositorioQueFalla(RepositorioEnMemoria):
+class RepositorioQueFalla(RepositorioEspia):
     """Carga bien, pero guardar() siempre falla como si no hubiera permisos."""
 
     def guardar(self, data: Libreria) -> None:
@@ -102,12 +103,12 @@ def escribir_csv(carpeta: Path, *filas: str) -> Path:
 
 class TestAgregar:
     def test_carga_el_catalogo_al_crearse(self, libreria: Libreria) -> None:
-        servicio = ServicioCatalogo(RepositorioEnMemoria(libreria))
+        servicio = ServicioCatalogo(RepositorioEspia(libreria))
         assert isbns(servicio) == ["111", "222"]
         assert servicio.datos["nombre"] == "Librería de prueba"
 
     def test_agrega_y_guarda_una_vez(self, libreria: Libreria) -> None:
-        repo = RepositorioEnMemoria(libreria)
+        repo = RepositorioEspia(libreria)
         servicio = ServicioCatalogo(repo)
 
         servicio.agregar(hacer_libro("333"))
@@ -117,7 +118,7 @@ class TestAgregar:
         assert repo.isbns_guardados == ["111", "222", "333"]
 
     def test_isbn_repetido_no_agrega_ni_guarda(self, libreria: Libreria) -> None:
-        repo = RepositorioEnMemoria(libreria)
+        repo = RepositorioEspia(libreria)
         servicio = ServicioCatalogo(repo)
 
         with pytest.raises(LibroInvalidoError, match="Ya existe"):
@@ -159,7 +160,7 @@ class TestImportarCSV:
             "444,Nuevo dos,Beto,Chilena,Ensayo,2001,200.00,0,Ed B",
             "111,Repetido,Carla,Peruana,Novela,1980,99.00,1,Ed C",
         )
-        repo = RepositorioEnMemoria(libreria)
+        repo = RepositorioEspia(libreria)
         servicio = ServicioCatalogo(repo)
 
         resultado = servicio.importar_csv(ruta)
@@ -171,7 +172,7 @@ class TestImportarCSV:
 
     def test_sin_libros_nuevos_no_guarda(self, libreria: Libreria, tmp_path: Path) -> None:
         ruta = escribir_csv(tmp_path, "111,Repetido,Carla,Peruana,Novela,1980,99.00,1,Ed C")
-        repo = RepositorioEnMemoria(libreria)
+        repo = RepositorioEspia(libreria)
         servicio = ServicioCatalogo(repo)
 
         resultado = servicio.importar_csv(ruta)
@@ -189,7 +190,7 @@ class TestImportarCSV:
         assert isbns(servicio) == ["111", "222"]
 
     def test_archivo_inexistente_no_modifica_nada(self, libreria: Libreria, tmp_path: Path) -> None:
-        repo = RepositorioEnMemoria(libreria)
+        repo = RepositorioEspia(libreria)
         servicio = ServicioCatalogo(repo)
 
         with pytest.raises(ArchivoNoEncontradoError):

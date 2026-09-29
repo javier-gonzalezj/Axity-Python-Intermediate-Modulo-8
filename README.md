@@ -268,7 +268,16 @@ Cómo funciona:
 
 La tendencia de las ventas sintéticas está escrita a mano en `datos_sinteticos.popularidad()` (thrillers, fantasía y novelas baratas se venden más; poesía y ensayo, menos). Un modelo entrenado con esos datos solo aprende esa regla: sirve para practicar el flujo, no para decidir qué libros comprar. `importancias()` muestra qué rasgos usó el modelo para compararlos con la regla.
 
-## Cambios recientes: puertos de la base de datos y unidad de trabajo (paso 2)
+## Cambios recientes: pruebas de contrato (paso 4, adelantado al 3)
+
+Una prueba de contrato es una sola batería de pruebas que corre contra TODAS las implementaciones de un puerto. Si todas pasan, las pruebas que usan la versión en memoria no mienten: la real se comporta igual.
+
+- **Adaptadores en memoria** en `repositorios_memoria.py` (nuevo): `CatalogoEnMemoria` y `UnidadDeTrabajoEnMemoria` (con `LibrosEnMemoria`, `PedidosEnMemoria` y `UsuariosEnMemoria`). Guardan y devuelven copias, como un archivo o una base, y la unidad de trabajo confirma o revierte igual que la de SQL.
+- **`tests/test_contrato_repositorios.py`**: las pruebas de los repositorios (antes `test_repositorios_sql.py`) ahora corren con `[sql]` y con `[memoria]` gracias a una fixture parametrizada. Se sumaron casos del contrato: los objetos leídos son copias independientes y cada pedido recibe un id distinto.
+- **`tests/test_contrato_catalogo.py`** (nuevo): la misma batería para `CatalogoJSON` y `CatalogoEnMemoria`.
+- **`test_servicios.py`** usa ahora `RepositorioEspia`, un `CatalogoEnMemoria` que además cuenta los guardados. El falso anterior no pasaba el contrato: `guardar()` no guardaba nada y `cargar()` devolvía el mismo objeto, así que un cambio sin guardar aparecía como guardado.
+
+## Cambios anteriores: puertos de la base de datos y unidad de trabajo (paso 2)
 
 Segundo paso hacia la arquitectura hexagonal: el núcleo ya puede hablar con la base de datos sin conocer SQLAlchemy. Por ahora estas piezas solo las usan sus pruebas; el siguiente paso (casos de uso) conectará la API a ellas.
 
@@ -276,7 +285,7 @@ Segundo paso hacia la arquitectura hexagonal: el núcleo ya puede hablar con la 
 - **Unidad de trabajo**: los repositorios nunca hacen commit. `with uow: ... uow.confirmar()` guarda todos los cambios juntos; si no se confirma o hay una excepción, al salir del `with` se revierte todo.
 - **Adaptadores SQL** en `repositorios_sql.py` (nuevo): `LibrosSQL`, `PedidosSQL`, `UsuariosSQL` y `UnidadDeTrabajoSQL`. Reutilizan las tablas y las funciones de traducción de `basedatos.py` (`fila_a_libro`, `fila_a_pedido`, ...), que ahora son públicas. Los errores de SQLAlchemy se traducen a `PersistenciaError`.
 - **`Usuario` y `Rol` pasan a `modelos.py`**, y los errores `LibroNoEncontradoError`, `UsuarioNoEncontradoError`, `PedidoNoEncontradoError` y `RegistroEnUsoError` pasan a `excepciones.py`. Así ni los puertos ni la API importan tipos desde la capa SQL.
-- **`tests/test_repositorios_sql.py`** (nuevo): pruebas de integración de los adaptadores con SQLite en memoria, incluida la garantía de "todo o nada" de la unidad de trabajo.
+- **`tests/test_repositorios_sql.py`** (hoy `test_contrato_repositorios.py`): pruebas de integración de los adaptadores con SQLite en memoria, incluida la garantía de "todo o nada" de la unidad de trabajo.
 
 ## Cambios anteriores: reglas de pedidos en el dominio (paso 1)
 
@@ -326,6 +335,7 @@ libreria/
 │   ├── pedidos.py             # dominio de pedidos: Pedido, estatus, stock y cancelación
 │   ├── puertos.py             # puertos (Protocol): catálogo, repositorios y unidad de trabajo
 │   ├── repositorios_sql.py    # adaptadores SQLAlchemy de los puertos y unidad de trabajo
+│   ├── repositorios_memoria.py  # adaptadores en memoria de los puertos (para pruebas)
 │   ├── servicios.py           # casos de uso del catálogo (ServicioCatalogo)
 │   ├── almacenamiento.py      # lectura y escritura del catálogo JSON
 │   ├── basedatos.py           # adaptador SQLAlchemy: tablas y traducción filas <-> dominio
@@ -348,7 +358,8 @@ libreria/
 │   ├── test_cache.py          # decorador @cache_temporal (con reloj falso)
 │   ├── test_portadas_concurrentes.py  # descarga en lote (async), semáforo y @reintentar_async
 │   ├── test_basedatos.py      # pedidos y reportes
-│   ├── test_repositorios_sql.py  # repositorios SQL y unidad de trabajo (todo o nada)
+│   ├── test_contrato_repositorios.py  # contrato de la base: [sql] y [memoria]
+│   ├── test_contrato_catalogo.py  # contrato del catálogo: [json] y [memoria]
 │   ├── test_crud.py           # CRUD de usuarios, libros y estatus de pedidos
 │   ├── test_api.py            # endpoints, login, tokens y permisos con TestClient
 │   ├── test_migraciones.py    # upgrade/downgrade de Alembic en memoria
@@ -366,7 +377,7 @@ libreria/
 poetry run pytest
 ```
 
-`test_pedidos.py` prueba las reglas de pedidos directamente sobre objetos del dominio: no necesita base de datos. `test_repositorios_sql.py` prueba los adaptadores SQL a través del puerto `UnidadDeTrabajo`, sobre la misma base en memoria. Las pruebas de `basedatos.py` usan una base SQLite en memoria, así que no tocan `data/libreria.db`. `test_migraciones.py` aplica y revierte las migraciones de Alembic sobre una base en memoria y verifica que coincidan con los modelos (lo mismo que `alembic check`). `test_api.py` prueba los endpoints con `TestClient` y reemplaza la sesión de base de datos por una en memoria con `app.dependency_overrides`. Las pruebas de `buscador.py` usan `httpx.MockTransport` para simular las respuestas de Open Library, así que no necesitan conexión a internet. `test_portadas_concurrentes.py` usa el mismo `MockTransport` con `httpx.AsyncClient` y ejecuta cada corrutina con `asyncio.run()`, así que no necesita plugins extra de pytest. Una de sus pruebas simula una red lenta para comprobar que el semáforo nunca deja más descargas simultáneas de las permitidas. `test_cache.py` simula el paso del tiempo con un reloj falso, así las pruebas de caducidad no esperan de verdad; `conftest.py` limpia la caché de ISBN antes de cada prueba. `test_prediccion.py` genera ventas sintéticas con semilla fija y entrena el modelo una sola vez para todo el archivo (fixture con `scope="module"`); comprueba, entre otras cosas, que el modelo supera claramente al azar y que las existencias no cambian la predicción.
+`test_pedidos.py` prueba las reglas de pedidos directamente sobre objetos del dominio: no necesita base de datos. Los archivos `test_contrato_*.py` son pruebas de contrato: la misma batería corre contra el adaptador real y contra el de memoria (en la salida aparecen como `[sql]`/`[json]` y `[memoria]`), usando solo lo que promete el puerto. Las pruebas de `basedatos.py` usan una base SQLite en memoria, así que no tocan `data/libreria.db`. `test_migraciones.py` aplica y revierte las migraciones de Alembic sobre una base en memoria y verifica que coincidan con los modelos (lo mismo que `alembic check`). `test_api.py` prueba los endpoints con `TestClient` y reemplaza la sesión de base de datos por una en memoria con `app.dependency_overrides`. Las pruebas de `buscador.py` usan `httpx.MockTransport` para simular las respuestas de Open Library, así que no necesitan conexión a internet. `test_portadas_concurrentes.py` usa el mismo `MockTransport` con `httpx.AsyncClient` y ejecuta cada corrutina con `asyncio.run()`, así que no necesita plugins extra de pytest. Una de sus pruebas simula una red lenta para comprobar que el semáforo nunca deja más descargas simultáneas de las permitidas. `test_cache.py` simula el paso del tiempo con un reloj falso, así las pruebas de caducidad no esperan de verdad; `conftest.py` limpia la caché de ISBN antes de cada prueba. `test_prediccion.py` genera ventas sintéticas con semilla fija y entrena el modelo una sola vez para todo el archivo (fixture con `scope="module"`); comprueba, entre otras cosas, que el modelo supera claramente al azar y que las existencias no cambian la predicción.
 
 ### Calidad del código
 

@@ -1,15 +1,19 @@
-"""Pruebas de integración de los adaptadores SQL (repositorios_sql.py).
+"""Pruebas de CONTRATO de los puertos de la base de datos.
 
-Usan la fixture `sesion` de conftest.py: SQLite en memoria con el catálogo de
-prueba ya importado. Revisan dos cosas:
+Cada prueba de este archivo corre dos veces: una con UnidadDeTrabajoSQL
+(SQLite en memoria) y otra con UnidadDeTrabajoEnMemoria. En la salida de
+pytest aparecen como `...[sql]` y `...[memoria]`.
 
-- que cada repositorio traduzca bien entre filas y objetos del dominio, y
-- que la unidad de trabajo guarde todo junto o nada.
+Si ambas pasan, los casos de uso se pueden probar con la versión en memoria
+(rápida y sin base) con la confianza de que la real se comporta igual.
+Si agregas otro adaptador (p. ej. PostgreSQL), súmalo a `params` en la
+fixture `entorno` y hereda toda la batería.
 
-La variable `uow` está anotada con el PUERTO (UnidadDeTrabajo): las pruebas
-solo usan lo que promete el contrato, igual que lo harán los casos de uso.
+Las pruebas solo usan lo que promete el PUERTO (UnidadDeTrabajo): nada de
+sesiones, filas ni detalles de un adaptador en particular.
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 
 import pytest
@@ -17,15 +21,18 @@ from sqlalchemy.orm import Session
 
 from libreria import basedatos as bd
 from libreria import pedidos
+from libreria.almacenamiento import cargar_datos
 from libreria.excepciones import (
     LibroInvalidoError,
     LibroNoEncontradoError,
     PedidoNoEncontradoError,
 )
-from libreria.modelos import Autor, Libro
+from libreria.modelos import Autor, Libro, Usuario
 from libreria.pedidos import Pedido, PedidoItem
 from libreria.puertos import UnidadDeTrabajo
+from libreria.repositorios_memoria import UnidadDeTrabajoEnMemoria
 from libreria.repositorios_sql import UnidadDeTrabajoSQL
+from tests.conftest import CATALOGO
 
 # Catálogo fijo, ver conftest.py
 CIEN_AÑOS = "978-607-07-1234-5"  # 12 ejemplares, $349.90
@@ -33,16 +40,34 @@ RAYUELA = "978-84-9793-563-2"  # 5 ejemplares, $399.50
 HOY = datetime(2026, 9, 29, 12, 0)
 
 
-@pytest.fixture
-def uow(sesion: Session) -> UnidadDeTrabajo:
-    return UnidadDeTrabajoSQL(sesion)
+@dataclass
+class Entorno:
+    uow: UnidadDeTrabajo
+    ana_id: int  # una usuaria que ya existe
+
+
+@pytest.fixture(params=["sql", "memoria"])
+def entorno(request: pytest.FixtureRequest) -> Entorno:
+    """Los MISMOS datos iniciales en los dos adaptadores: catálogo de prueba y Ana."""
+    if request.param == "sql":
+        sesion: Session = request.getfixturevalue("sesion")  # ya trae el catálogo
+        ana = bd.crear_usuario(sesion, "Ana", "ana@mail.com")
+        assert ana.id is not None
+        return Entorno(UnidadDeTrabajoSQL(sesion), ana.id)
+
+    ana = Usuario(id=1, nombre="Ana", email="ana@mail.com")
+    libros = cargar_datos(CATALOGO)["libros"]
+    return Entorno(UnidadDeTrabajoEnMemoria(libros=libros, usuarios=[ana]), 1)
 
 
 @pytest.fixture
-def ana_id(sesion: Session) -> int:
-    ana = bd.crear_usuario(sesion, "Ana", "ana@mail.com")
-    assert ana.id is not None
-    return ana.id
+def uow(entorno: Entorno) -> UnidadDeTrabajo:
+    return entorno.uow
+
+
+@pytest.fixture
+def ana_id(entorno: Entorno) -> int:
+    return entorno.ana_id
 
 
 def libro_nuevo(isbn: str = "978-607-16-0001-1") -> Libro:
@@ -67,7 +92,7 @@ def pedido_nuevo(usuario_id: int) -> Pedido:
 # ── Libros ───────────────────────────────────────────────────────────────────
 
 
-class TestLibrosSQL:
+class TestRepositorioLibros:
     def test_obtener_un_libro_existente(self, uow: UnidadDeTrabajo) -> None:
         with uow:
             libro = uow.libros.obtener(CIEN_AÑOS)
@@ -120,11 +145,22 @@ class TestLibrosSQL:
         with uow, pytest.raises(LibroNoEncontradoError):
             uow.libros.guardar(libro_nuevo())
 
+    def test_modificar_un_libro_leido_no_cambia_nada_sin_guardar(
+        self, uow: UnidadDeTrabajo
+    ) -> None:
+        with uow:
+            libro = uow.libros.obtener(RAYUELA)
+            assert libro is not None
+            libro.retirar(5)  # sin uow.libros.guardar(libro)
+
+            otra_lectura = uow.libros.obtener(RAYUELA)
+            assert otra_lectura is not None and otra_lectura.cantidad_disponible == 5
+
 
 # ── Pedidos ──────────────────────────────────────────────────────────────────
 
 
-class TestPedidosSQL:
+class TestRepositorioPedidos:
     def test_agregar_le_asigna_id_al_pedido(self, uow: UnidadDeTrabajo, ana_id: int) -> None:
         pedido = pedido_nuevo(ana_id)
 
@@ -165,6 +201,33 @@ class TestPedidosSQL:
         with uow:
             assert uow.pedidos.obtener(999) is None
 
+    def test_cada_pedido_recibe_un_id_distinto(self, uow: UnidadDeTrabajo, ana_id: int) -> None:
+        primero, segundo = pedido_nuevo(ana_id), pedido_nuevo(ana_id)
+        with uow:
+            uow.pedidos.agregar(primero)
+            uow.pedidos.agregar(segundo)
+            uow.confirmar()
+
+        assert primero.id is not None and segundo.id is not None
+        assert primero.id != segundo.id
+
+    def test_modificar_un_pedido_leido_no_cambia_nada_sin_guardar(
+        self, uow: UnidadDeTrabajo, ana_id: int
+    ) -> None:
+        pedido = pedido_nuevo(ana_id)
+        with uow:
+            uow.pedidos.agregar(pedido)
+            uow.confirmar()
+
+        assert pedido.id is not None
+        with uow:
+            leido = uow.pedidos.obtener(pedido.id)
+            assert leido is not None
+            leido.avanzar_a("pagado")  # sin uow.pedidos.guardar(leido)
+
+            otra_lectura = uow.pedidos.obtener(pedido.id)
+            assert otra_lectura is not None and otra_lectura.estatus == "pendiente"
+
     def test_guardar_un_pedido_inexistente_se_rechaza(
         self, uow: UnidadDeTrabajo, ana_id: int
     ) -> None:
@@ -178,7 +241,7 @@ class TestPedidosSQL:
 # ── Usuarios ─────────────────────────────────────────────────────────────────
 
 
-class TestUsuariosSQL:
+class TestRepositorioUsuarios:
     def test_obtener_un_usuario(self, uow: UnidadDeTrabajo, ana_id: int) -> None:
         with uow:
             usuario = uow.usuarios.obtener(ana_id)
